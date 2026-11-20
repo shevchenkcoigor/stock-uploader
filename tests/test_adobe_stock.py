@@ -150,3 +150,24 @@ def test_folder_settings_come_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ADOBE_CSV_DIR", str(tmp_path / "out"))
     settings = load_settings()
     assert settings.backup_dir == tmp_path / "bk" and settings.csv_dir == tmp_path / "out"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "sftp.example.test",
+        "sftp://sftp.example.test",
+        "sftp://sftp.example.test/",
+        "sftp.example.test:22",
+        "  ssh://sftp.example.test:22/path ",
+    ],
+)
+def test_host_is_reduced_to_a_bare_hostname(monkeypatch, raw):
+    monkeypatch.setenv("ADOBE_SFTP_HOST", raw)
+    assert load_settings().sftp_host == "sftp.example.test"
+
+
+def test_empty_host_is_rejected(monkeypatch):
+    monkeypatch.setenv("ADOBE_SFTP_HOST", "sftp://")
+    with pytest.raises(ValueError):
+        load_settings()

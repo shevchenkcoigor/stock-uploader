@@ -6,7 +6,7 @@ variables win over the `.env` file. Never commit `.env`.
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SFTP_HOST = "sftp.contributor.adobestock.com"
@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     sftp_password: SecretStr = SecretStr("")
     backup_dir: Path | None = Field(default=None, description="default: <db name>_backups next to the DB")
     csv_dir: Path = DEFAULT_CSV_DIR
+
+    @field_validator("sftp_host")
+    @classmethod
+    def _bare_hostname(cls, value: str) -> str:
+        """Accept `sftp://host/` or `host:22` pasted from a docs page; DNS needs just the name."""
+        host = value.strip().removeprefix("sftp://").removeprefix("ssh://").split("/", 1)[0]
+        host = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+        if not host:
+            raise ValueError("ADOBE_SFTP_HOST is empty")
+        return host
 
     def require_sftp_credentials(self) -> None:
         if not self.sftp_user or not self.sftp_password.get_secret_value():

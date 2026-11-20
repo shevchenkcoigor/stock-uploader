@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
+import paramiko
+
 from adobe_stock import backup, caption, state
 from adobe_stock.metadata_csv import (
     MAX_ROWS,
@@ -320,9 +322,13 @@ def cmd_upload(args: argparse.Namespace) -> int:
 
     try:
         failed = upload_files(load_settings(), files, on_success=on_success)
-    except Exception as error:  # connection or login problems end the whole run
-        state.log_event(conn, "upload", f"batch {batch}: aborted: {error}", "error")
-        raise
+    except (OSError, paramiko.SSHException, RuntimeError) as error:
+        # DNS, network, login or missing-credential problems end the whole run; files stay pending
+        message = f"cannot upload batch {batch}: {error}"
+        state.log_event(conn, "upload", message, "error")
+        print(f"ERROR {message}")
+        print("Files stay pending. Check ADOBE_SFTP_HOST/PORT/USER/PASSWORD (.env) and the network.")
+        return 1
     for name in failed:
         state.log_event(conn, "upload", "upload failed", "error", name)
     state.log_event(

@@ -289,3 +289,22 @@ def test_upload_logs_each_file_and_the_summary(tmp_path, monkeypatch):
     assert ("info", "a.jpg", "uploaded as a.jpg") in messages
     assert ("error", "b.jpg", "upload failed") in messages
     assert events[-1]["level"] == "error" and "1 uploaded, 1 failed" in events[-1]["message"]
+
+
+def test_unreachable_host_is_reported_not_a_traceback_and_files_stay_pending(tmp_path, monkeypatch, capsys):
+    import socket
+
+    db = tmp_path / "s.db"
+    main(["--db", str(db), "scan", str(make_folder(tmp_path, "f1", ["a.jpg"]))])
+
+    def no_dns(settings, files, on_success):
+        raise socket.gaierror(8, "nodename nor servname provided, or not known")
+
+    monkeypatch.setattr("adobe_stock.cli.upload_files", no_dns)
+    monkeypatch.setattr("adobe_stock.cli.load_settings", lambda: None)
+    assert main(["--db", str(db), "upload", "--batch", "1"]) == 1
+
+    assert "cannot upload batch 1" in capsys.readouterr().out
+    conn = state.open_db(db)
+    assert [p.name for p, _ in state.pending_files(conn)] == ["a.jpg"]
+    assert state.recent_events(conn, 5, level="error")[-1]["message"].startswith("cannot upload batch 1")
