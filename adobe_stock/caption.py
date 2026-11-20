@@ -13,6 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from adobe_stock.categories import CATEGORIES, category_menu
 from adobe_stock.metadata_csv import MAX_KEYWORDS, MAX_TITLE_CHARS
 
 DEFAULT_MODEL = "claude-haiku-5-5"
@@ -43,7 +44,8 @@ SYSTEM_PROMPT = (
     "- keywords: 25-35 English keywords (single words or short phrases), most relevant first, "
     "covering subject, setting, colors, mood, composition and likely uses. Only things visible "
     "or clearly implied. No brands, trademarks, artist names, and no words like 'AI' or "
-    "'generated'."
+    "'generated'.\n"
+    "- category: the single best-fitting category code from this list: " + category_menu() + "."
 )
 
 RESPONSE_SCHEMA = {
@@ -57,8 +59,9 @@ RESPONSE_SCHEMA = {
                     "file": {"type": "string"},
                     "title": {"type": "string"},
                     "keywords": {"type": "array", "items": {"type": "string"}},
+                    "category": {"type": "integer", "enum": list(CATEGORIES)},
                 },
-                "required": ["file", "title", "keywords"],
+                "required": ["file", "title", "keywords", "category"],
             },
         }
     },
@@ -75,6 +78,7 @@ class CaptionResult:
     path: Path
     title: str = ""
     keywords: tuple[str, ...] = ()
+    category: str = ""
     error: str | None = None
 
 
@@ -104,6 +108,13 @@ def clean_keywords(raw: list[str]) -> tuple[str, ...]:
         seen.add(normalized)
         kept.append(normalized)
     return tuple(kept[:MAX_KEYWORDS])
+
+
+def _category_code(raw: object) -> str:
+    """The category as a CSV code string; anything outside Adobe's list is dropped (optional field)."""
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw in CATEGORIES:
+        return str(raw)
+    return ""
 
 
 def build_command(preview_dir: Path, names: list[str], model: str) -> list[str]:
@@ -185,5 +196,5 @@ def caption_group(sources: list[Path], model: str = DEFAULT_MODEL) -> list[Capti
         if not title or not keywords:
             results.append(CaptionResult(source, error="empty title or keywords"))
             continue
-        results.append(CaptionResult(source, title, keywords))
+        results.append(CaptionResult(source, title, keywords, _category_code(item.get("category"))))
     return results

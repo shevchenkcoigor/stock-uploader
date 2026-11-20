@@ -238,13 +238,15 @@ def files_needing_metadata(conn: sqlite3.Connection, limit: int) -> list[Path]:
     return [Path(row["path"]) for row in rows]
 
 
-def set_metadata(conn: sqlite3.Connection, path: Path, title: str, keywords: tuple[str, ...]) -> None:
+def set_metadata(
+    conn: sqlite3.Connection, path: Path, title: str, keywords: tuple[str, ...], category: str = ""
+) -> None:
     """Attach generated metadata; the file becomes pending and ready to be batched."""
     with conn:
         conn.execute(
-            "UPDATE files SET title = ?, keywords = ?, status = ?, error = NULL, updated_at = ? "
-            "WHERE path = ? AND status = ?",
-            (title, json.dumps(list(keywords)), PENDING, _now(), str(path), NEEDS_METADATA),
+            "UPDATE files SET title = ?, keywords = ?, category = ?, status = ?, error = NULL, "
+            "updated_at = ? WHERE path = ? AND status = ?",
+            (title, json.dumps(list(keywords)), category, PENDING, _now(), str(path), NEEDS_METADATA),
         )
 
 

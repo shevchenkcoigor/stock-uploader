@@ -156,13 +156,13 @@ def _store_results(conn, results: list, errors: list[str]) -> int:
             state.record_error(conn, result.path, result.error)
             errors.append(f"{result.path.name}: {result.error}")
             continue
-        item = Item(result.path.name, result.title, result.keywords)
+        item = Item(result.path.name, result.title, result.keywords, result.category)
         problems = check_items([item], {item.filename})
         if problems:
             state.record_error(conn, result.path, "; ".join(problems))
             errors.append(f"{result.path.name}: {'; '.join(problems)}")
             continue
-        state.set_metadata(conn, result.path, result.title, result.keywords)
+        state.set_metadata(conn, result.path, result.title, result.keywords, result.category)
         stored += 1
     return stored
 

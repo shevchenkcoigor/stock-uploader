@@ -57,6 +57,47 @@ def test_caption_group_maps_results_back_to_sources(tmp_path, monkeypatch):
     assert all(r.error is None and r.keywords == ("red", "shape") for r in results)
 
 
+def test_category_code_from_claude_is_kept_and_invalid_ones_are_dropped(tmp_path, monkeypatch):
+    sources = []
+    for index in range(3):
+        path = tmp_path / f"src{index}.jpg"
+        Image.new("RGB", (2000, 2000), (index * 100, 0, 0)).save(path, "JPEG")
+        sources.append(path)
+
+    def with_categories(command, cwd):
+        names = sorted(p.name for p in Path(cwd).glob("*.jpg"))
+        categories = [7, 99, "food"]  # valid, outside Adobe's list, wrong type
+        return envelope(
+            [{"file": n, "title": "T", "keywords": ["k"], "category": c} for n, c in zip(names, categories)]
+        )
+
+    monkeypatch.setattr(caption, "run_claude", with_categories)
+    results = caption.caption_group(sources)
+    assert [r.category for r in results] == ["7", "", ""]
+
+
+def test_schema_and_prompt_offer_exactly_adobes_categories():
+    from adobe_stock.categories import CATEGORIES
+
+    enum = caption.RESPONSE_SCHEMA["properties"]["items"]["items"]["properties"]["category"]["enum"]
+    assert enum == list(CATEGORIES) and len(enum) == 21
+    assert "7 Food" in caption.SYSTEM_PROMPT and "21 Travel" in caption.SYSTEM_PROMPT
+
+
+def test_caption_command_stores_the_category(tmp_path, monkeypatch):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_unlabelled_folder(tmp_path, ["a.jpg"])))
+
+    def food(command, cwd):
+        names = sorted(p.name for p in Path(cwd).glob("*.jpg"))
+        return envelope([{"file": n, "title": "T", "keywords": ["k"], "category": 7} for n in names])
+
+    monkeypatch.setattr(caption, "run_claude", food)
+    assert run(db, "caption") == 0
+    row = state.open_db(db).execute("SELECT category FROM files").fetchone()
+    assert row["category"] == "7"
+
+
 def test_preview_is_downscaled(tmp_path):
     source = tmp_path / "big.jpg"
     Image.new("RGB", (4000, 3000)).save(source, "JPEG")

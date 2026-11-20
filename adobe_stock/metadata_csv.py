@@ -13,6 +13,8 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 
+from adobe_stock.categories import CATEGORIES
+
 HEADERS = ("Filename", "Title", "Keywords", "Category", "Releases")
 MAX_ROWS = 20_000
 MAX_CSV_BYTES = 20 * 1024 * 1024
@@ -65,8 +67,10 @@ def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
             problems.append(f"{item.filename}: no keywords")
         if len(item.keywords) > MAX_KEYWORDS:
             problems.append(f"{item.filename}: more than {MAX_KEYWORDS} keywords")
-        if item.category and not item.category.isdigit():
-            problems.append(f"{item.filename}: category must be a numeric code, got {item.category!r}")
+        if item.category and not (item.category.isdigit() and int(item.category) in CATEGORIES):
+            problems.append(
+                f"{item.filename}: category must be a code from 1-{len(CATEGORIES)}, got {item.category!r}"
+            )
     return problems
 
 

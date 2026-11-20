@@ -65,10 +65,12 @@ def test_roundtrip_writes_adobe_headers(tmp_path):
     assert rows[1][4] == ""  # Releases column is left empty
 
 
-def test_category_must_be_numeric():
-    items = [Item("a.jpg", "t", ("k",), category="nature")]
-    assert any("numeric" in p for p in check_items(items, {"a.jpg"}))
-    assert check_items([Item("a.jpg", "t", ("k",), category="7")], {"a.jpg"}) == []
+def test_category_must_be_a_code_from_adobes_list():
+    for bad in ("nature", "0", "22", "99"):
+        problems = check_items([Item("a.jpg", "t", ("k",), category=bad)], {"a.jpg"})
+        assert any("category" in p for p in problems), bad
+    for good in ("", "1", "7", "21"):
+        assert check_items([Item("a.jpg", "t", ("k",), category=good)], {"a.jpg"}) == []
 
 
 def test_written_csv_has_exact_adobe_headers_and_passes_file_validation(tmp_path):
