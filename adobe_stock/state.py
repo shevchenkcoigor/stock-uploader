@@ -23,6 +23,7 @@ INVALID = "invalid"
 UPLOADED = "uploaded"
 SUBMITTED = "submitted"
 NEEDS_METADATA = "needs_metadata"  # valid image, waiting for a title and keywords
+REVIEW = "review"  # captioned, but flagged as a possible Adobe AI-policy risk; needs a human
 
 HASH_SUFFIX_CHARS = 8
 HASH_CHUNK_BYTES = 1024 * 1024
@@ -45,6 +46,8 @@ CREATE TABLE IF NOT EXISTS files (
     size INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL DEFAULT 0,
     root TEXT NOT NULL DEFAULT '',
+    people_visible INTEGER NOT NULL DEFAULT 0,
+    content_type TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     keywords TEXT NOT NULL DEFAULT '[]',
     category TEXT NOT NULL DEFAULT '',
@@ -86,6 +89,8 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
     additions = {
         "mtime_ns": "INTEGER NOT NULL DEFAULT 0",
         "root": "TEXT NOT NULL DEFAULT ''",
+        "people_visible": "INTEGER NOT NULL DEFAULT 0",
+        "content_type": "TEXT NOT NULL DEFAULT ''",
     }
     with conn:
         for name, ddl in additions.items():
@@ -249,15 +254,64 @@ def files_needing_metadata(conn: sqlite3.Connection, limit: int) -> list[Path]:
 
 
 def set_metadata(
-    conn: sqlite3.Connection, path: Path, title: str, keywords: tuple[str, ...], category: str = ""
+    conn: sqlite3.Connection,
+    path: Path,
+    title: str,
+    keywords: tuple[str, ...],
+    category: str = "",
+    people_visible: bool = False,
+    content_type: str = "",
+    review_reason: str = "",
 ) -> None:
-    """Attach generated metadata; the file becomes pending and ready to be batched."""
+    """Attach generated metadata.
+
+    The file becomes pending (ready to be batched), unless review_reason is set: then it goes to
+    `review` and stays out of batches until a person approves it.
+    """
+    status = REVIEW if review_reason else PENDING
     with conn:
         conn.execute(
-            "UPDATE files SET title = ?, keywords = ?, category = ?, status = ?, error = NULL, "
-            "updated_at = ? WHERE path = ? AND status = ?",
-            (title, json.dumps(list(keywords)), category, PENDING, _now(), str(path), NEEDS_METADATA),
+            "UPDATE files SET title = ?, keywords = ?, category = ?, people_visible = ?, "
+            "content_type = ?, status = ?, error = ?, updated_at = ? WHERE path = ? AND status = ?",
+            (
+                title,
+                json.dumps(list(keywords)),
+                category,
+                int(people_visible),
+                content_type,
+                status,
+                review_reason or None,
+                _now(),
+                str(path),
+                NEEDS_METADATA,
+            ),
         )
+
+
+def review_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT filename, path, title, error FROM files WHERE status = ? ORDER BY id", (REVIEW,)
+    ).fetchall()
+
+
+def approve_reviewed(conn: sqlite3.Connection, filenames: list[str] | None = None) -> int:
+    """Release flagged files into the pending queue; None approves all of them."""
+    query = "UPDATE files SET status = ?, error = NULL, updated_at = ? WHERE status = ?"
+    params: list = [PENDING, _now(), REVIEW]
+    if filenames is not None:
+        query += f" AND filename IN ({','.join('?' * len(filenames))})"
+        params.extend(filenames)
+    with conn:
+        return conn.execute(query, params).rowcount
+
+
+def portal_notes(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
+    """Per-file facts needed for the portal checkboxes, for the uploaded files of a batch."""
+    return conn.execute(
+        "SELECT filename, people_visible, content_type FROM files "
+        "WHERE batch_id = ? AND status = ? ORDER BY id",
+        (batch_id, UPLOADED),
+    ).fetchall()
 
 
 def record_error(conn: sqlite3.Connection, path: Path, error: str) -> None:

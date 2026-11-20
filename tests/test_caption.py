@@ -174,3 +174,91 @@ def test_parse_items_rejects_garbage():
         caption.parse_items("not json")
     with pytest.raises(caption.ClaudeCallError):
         caption.parse_items(json.dumps({"is_error": True, "result": "rate limited"}))
+
+
+def make_policy_claude(flags):
+    """Fake Claude answering per preview file; `flags` maps the n-th file to its policy fields."""
+
+    def fake(command, cwd):
+        names = sorted(p.name for p in Path(cwd).glob("*.jpg"))
+        items = []
+        for index, name in enumerate(names):
+            fields = {
+                "people_visible": False,
+                "content_type": "illustration",
+                "review_reason": "",
+                **flags.get(index, {}),
+            }
+            items.append({"file": name, "title": "T", "keywords": ["k"], "category": 8, **fields})
+        return envelope(items)
+
+    return fake
+
+
+def test_schema_and_prompt_carry_adobes_ai_policy():
+    props = caption.RESPONSE_SCHEMA["properties"]["items"]["items"]["properties"]
+    assert {"people_visible", "content_type", "review_reason"} <= set(props)
+    assert props["content_type"]["enum"] == ["photo", "illustration"]
+    prompt = caption.SYSTEM_PROMPT.lower()
+    for forbidden in ("artists", "fictional characters", "government agencies", "newsworthy"):
+        assert forbidden in prompt
+
+
+def test_flagged_file_is_held_back_until_approved(tmp_path, monkeypatch, capsys):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_unlabelled_folder(tmp_path, ["a.jpg", "b.jpg"])))
+    conn = state.open_db(db)
+    flags = {1: {"review_reason": "looks like a famous cartoon character"}}
+    monkeypatch.setattr(caption, "run_claude", make_policy_claude(flags))
+
+    assert run(db, "caption") == 0
+    assert "famous cartoon character" in capsys.readouterr().out
+    assert [p.name for p, _ in state.pending_files(conn)] == ["a.jpg"]  # b.jpg is held back
+    held = state.review_files(conn)
+    assert [r["filename"] for r in held] == ["b.jpg"]
+
+    assert run(db, "review") == 0
+    assert "b.jpg" in capsys.readouterr().out
+
+    assert run(db, "approve") == 2  # needs names or --all
+    assert run(db, "approve", "b.jpg") == 0
+    assert sorted(p.name for p, _ in state.pending_files(conn)) == ["a.jpg", "b.jpg"]
+    assert state.review_files(conn) == []
+
+
+def test_csv_writes_portal_checklist_with_people_and_types(tmp_path, monkeypatch, capsys):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_unlabelled_folder(tmp_path, ["a.jpg", "b.jpg", "c.jpg"])))
+    flags = {0: {"people_visible": True, "content_type": "photo"}, 1: {"content_type": "photo"}}
+    monkeypatch.setattr(caption, "run_claude", make_policy_claude(flags))
+    run(db, "caption")
+    conn = state.open_db(db)
+    for path, _ in state.pending_files(conn):
+        state.mark_uploaded(conn, path)
+
+    out = tmp_path / "csv_out" / "m.csv"
+    assert run(db, "csv", "1", "--output", str(out)) == 0
+    text = (tmp_path / "csv_out" / "m_portal_notes.txt").read_text(encoding="utf-8")
+    assert "Created using generative AI tools: tick for ALL 3 files" in text
+    assert "People and Property are fictional: tick for the 1 files" in text
+    assert "   a.jpg" in text  # the file with people
+    assert "2 photo-realistic, 1 illustrations" in text
+    assert "ALL 3 files" in capsys.readouterr().out
+
+
+def test_old_database_without_new_columns_is_upgraded(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE batches (id INTEGER PRIMARY KEY, folder TEXT NOT NULL, part INTEGER NOT NULL, "
+        "csv_path TEXT, created_at TEXT NOT NULL, UNIQUE (folder, part));"
+        "CREATE TABLE files (id INTEGER PRIMARY KEY, batch_id INTEGER, path TEXT NOT NULL UNIQUE, "
+        "filename TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, title TEXT NOT NULL "
+        "DEFAULT '', keywords TEXT NOT NULL DEFAULT '[]', category TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL, error TEXT, updated_at TEXT NOT NULL);"
+    )
+    conn.close()
+    columns = {r["name"] for r in state.open_db(db).execute("PRAGMA table_info(files)")}
+    assert {"mtime_ns", "root", "people_visible", "content_type"} <= columns

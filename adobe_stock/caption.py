@@ -54,8 +54,19 @@ SYSTEM_PROMPT = (
     "covering subject, setting, colors, mood, composition and likely uses. Only things visible "
     "or clearly implied. No brands, trademarks, artist names, and no words like 'AI' or "
     "'generated'.\n"
-    "- category: the single best-fitting category code from this list: " + category_menu() + "."
+    "- category: the single best-fitting category code from this list: " + category_menu() + ".\n"
+    "- people_visible: true if any person or human-like figure is visible.\n"
+    "- content_type: 'photo' if it looks camera-captured and photo-realistic, otherwise "
+    "'illustration'.\n"
+    "- review_reason: Adobe's generative-AI policy forbids names of artists, real people or "
+    "fictional characters, references to copyrighted works, government agencies, third-party "
+    "intellectual property (brands, logos, trademarks) and anything implying a real newsworthy "
+    "event. Never put any of these in the title or keywords; describe such things generically. "
+    "If the image itself shows or strongly resembles any of them, or a recognizable real person, "
+    "explain briefly in review_reason; otherwise use an empty string."
 )
+
+CONTENT_TYPES = ("photo", "illustration")
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -69,8 +80,19 @@ RESPONSE_SCHEMA = {
                     "title": {"type": "string"},
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "category": {"type": "integer", "enum": list(CATEGORIES)},
+                    "people_visible": {"type": "boolean"},
+                    "content_type": {"type": "string", "enum": list(CONTENT_TYPES)},
+                    "review_reason": {"type": "string"},
                 },
-                "required": ["file", "title", "keywords", "category"],
+                "required": [
+                    "file",
+                    "title",
+                    "keywords",
+                    "category",
+                    "people_visible",
+                    "content_type",
+                    "review_reason",
+                ],
             },
         }
     },
@@ -88,6 +110,9 @@ class CaptionResult:
     title: str = ""
     keywords: tuple[str, ...] = ()
     category: str = ""
+    people_visible: bool = False
+    content_type: str = ""
+    review_reason: str = ""  # set when the image may break Adobe's AI policy; needs a human
     error: str | None = None
 
 
@@ -218,5 +243,16 @@ def caption_group(sources: list[Path], model: str = DEFAULT_MODEL) -> list[Capti
         if not title or not keywords:
             results.append(CaptionResult(source, error="empty title or keywords"))
             continue
-        results.append(CaptionResult(source, title, keywords, _category_code(item.get("category"))))
+        content_type = str(item.get("content_type", ""))
+        results.append(
+            CaptionResult(
+                source,
+                title,
+                keywords,
+                _category_code(item.get("category")),
+                people_visible=item.get("people_visible") is True,
+                content_type=content_type if content_type in CONTENT_TYPES else "",
+                review_reason=" ".join(str(item.get("review_reason") or "").split()),
+            )
+        )
     return results

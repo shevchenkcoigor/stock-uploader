@@ -148,7 +148,7 @@ def test_csv_is_auto_named_in_csv_dir_and_rewritten_in_place(tmp_path):
 
     run(db, "csv", "1", "--csv-dir", str(csv_dir))
     run(db, "csv", "1", "--csv-dir", str(csv_dir))
-    names = [p.name for p in csv_dir.iterdir()]
+    names = [p.name for p in csv_dir.glob("*.csv")]
     assert len(names) == 1  # second run rewrote the same file
     assert names[0].startswith("metadata_") and names[0].endswith("_batch1.csv")
 

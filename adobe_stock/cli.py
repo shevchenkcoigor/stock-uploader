@@ -29,7 +29,7 @@ DEFAULT_DB = Path("state.db")
 DEFAULT_IMAGES_DIR = Path("images")
 DEFAULT_BATCH_SIZE = 1000
 MAX_INVALID_SHOWN = 30
-MUTATING_COMMANDS = frozenset({"scan", "caption", "upload", "csv", "submitted"})
+MUTATING_COMMANDS = frozenset({"scan", "caption", "approve", "upload", "csv", "submitted"})
 DEFAULT_CAPTION_LIMIT = 50
 DEFAULT_IMAGES_PER_CALL = 5
 MAX_CONSECUTIVE_CALL_FAILURES = 2
@@ -125,6 +125,7 @@ def cmd_caption(args: argparse.Namespace) -> int:
     groups = [todo[i : i + args.per_call] for i in range(0, len(todo), args.per_call)]
     captioned = 0
     errors: list[str] = []
+    flagged: list[str] = []
     failed_calls = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -139,19 +140,23 @@ def cmd_caption(args: argparse.Namespace) -> int:
                     errors.append(str(error))
                     continue
                 failed_calls = 0
-                captioned += _store_results(conn, results, errors)
+                captioned += _store_results(conn, results, errors, flagged)
             if failed_calls >= MAX_CONSECUTIVE_CALL_FAILURES:
                 errors.append("stopping: repeated call failures (usage limit or login problem?)")
                 break
 
     batches = state.assign_batches(conn, args.batch_size)
-    print(f"captioned {captioned} of {len(todo)}, new batches {batches}")
+    print(f"captioned {captioned} of {len(todo)}, flagged for review {len(flagged)}, new batches {batches}")
+    for message in flagged[:MAX_ERRORS_SHOWN]:
+        print(f"REVIEW {message}")
+    if flagged:
+        print("Flagged files are held back from upload. See `adobe review`, then `adobe approve`.")
     for message in errors[:MAX_ERRORS_SHOWN]:
         print(f"ERROR {message}")
     return 1 if errors else 0
 
 
-def _store_results(conn, results: list, errors: list[str]) -> int:
+def _store_results(conn, results: list, errors: list[str], flagged: list[str]) -> int:
     stored = 0
     for result in results:
         if result.error:
@@ -164,9 +169,82 @@ def _store_results(conn, results: list, errors: list[str]) -> int:
             state.record_error(conn, result.path, "; ".join(problems))
             errors.append(f"{result.path.name}: {'; '.join(problems)}")
             continue
-        state.set_metadata(conn, result.path, result.title, result.keywords, result.category)
+        state.set_metadata(
+            conn,
+            result.path,
+            result.title,
+            result.keywords,
+            result.category,
+            result.people_visible,
+            result.content_type,
+            result.review_reason,
+        )
+        if result.review_reason:
+            flagged.append(f"{result.path.name}: {result.review_reason}")
+            continue
         stored += 1
     return stored
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    """List files that Claude flagged as possible Adobe AI-policy risks."""
+    rows = state.review_files(state.open_db(args.db))
+    if not rows:
+        print("nothing to review")
+        return 0
+    for row in rows:
+        print(f"{row['filename']}: {row['error']}\n    title: {row['title']}\n    {row['path']}")
+    print(
+        f"{len(rows)} files held back. Look at them, then `adobe approve NAME...` or `adobe approve --all`."
+    )
+    print("Delete or move files you do not want to submit.")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    """Release reviewed files into the upload queue."""
+    if not args.names and not args.all:
+        print("give file names to approve, or --all")
+        return 2
+    conn = state.open_db(args.db)
+    count = state.approve_reviewed(conn, None if args.all else args.names)
+    batches = state.assign_batches(conn, args.batch_size)
+    print(f"approved {count} files, new batches {batches}")
+    return 0
+
+
+def write_portal_notes(output: Path, batch_id: int, rows: list) -> Path:
+    """A checklist for the Contributor Portal: the AI labels cannot be set from the CSV."""
+    people = [row["filename"] for row in rows if row["people_visible"]]
+    unknown = [row["filename"] for row in rows if not row["content_type"]]
+    photos = [row["filename"] for row in rows if row["content_type"] == "photo"]
+    illustrations = [row["filename"] for row in rows if row["content_type"] == "illustration"]
+    lines = [
+        f"Portal checklist for batch {batch_id} ({len(rows)} files)",
+        "",
+        f"1. Created using generative AI tools: tick for ALL {len(rows)} files (required by Adobe).",
+        "",
+        f"2. People and Property are fictional: tick for the {len(people)} files that show people or "
+        "human-like figures:",
+        *[f"   {name}" for name in people],
+        "   If a file shows a real, identifiable person, Adobe requires a model release instead.",
+        "",
+        f"3. Content type: {len(photos)} photo-realistic, {len(illustrations)} illustrations.",
+        "   Photos:",
+        *[f"   {name}" for name in photos],
+        "   Illustrations:",
+        *[f"   {name}" for name in illustrations],
+    ]
+    if unknown:
+        lines += [
+            "",
+            f"{len(unknown)} files have no people/type information (metadata came from your own CSV), "
+            "check them yourself:",
+            *[f"   {name}" for name in unknown],
+        ]
+    notes = output.with_name(f"{output.stem}_portal_notes.txt")
+    notes.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return notes
 
 
 def pick_batch(batches: list, ask: Callable[[str], str] = input) -> int:
@@ -229,8 +307,13 @@ def cmd_csv(args: argparse.Namespace) -> int:
         return 1
     state.record_csv(conn, args.batch, output.resolve())
     print(f"wrote {output} ({len(items)} rows, checked against Adobe's CSV rules)")
-    print("Portal: Uploaded Files > New > Upload CSV. The CSV has no AI column: mark the files as")
-    print("Generative AI in the portal when you upload them.")
+    rows = state.portal_notes(conn, args.batch)
+    notes = write_portal_notes(output, args.batch, rows)
+    people = sum(1 for row in rows if row["people_visible"])
+    print("Portal: Uploaded Files > New > Upload CSV. Then, before submitting for review:")
+    print(f"  - tick 'Created using generative AI tools' for ALL {len(rows)} files (required)")
+    print(f"  - tick 'People and Property are fictional' for the {people} files with people")
+    print(f"Checklist with file names: {notes}")
     return 0
 
 
@@ -333,6 +416,16 @@ def build_parser() -> argparse.ArgumentParser:
     restore = sub.add_parser("restore", help="restore the state DB from the latest valid backup")
     restore.add_argument("--force", action="store_true", help="replace an existing DB")
     restore.set_defaults(func=cmd_restore)
+
+    sub.add_parser("review", help="list files Claude flagged as possible Adobe AI-policy risks").set_defaults(
+        func=cmd_review
+    )
+
+    approve = sub.add_parser("approve", help="release reviewed files into the upload queue")
+    approve.add_argument("names", nargs="*", help="file names as shown by `review`")
+    approve.add_argument("--all", action="store_true", help="approve every file under review")
+    approve.add_argument("--batch-size", type=_batch_size, default=DEFAULT_BATCH_SIZE)
+    approve.set_defaults(func=cmd_approve)
 
     sub.add_parser("status", help="show batches and file statuses").set_defaults(func=cmd_status)
     return parser
