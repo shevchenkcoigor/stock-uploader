@@ -8,6 +8,7 @@ import argparse
 import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from adobe_stock.metadata_csv import (
     check_items,
     read_source,
     validate_csv_file,
+    with_ai_label,
     write_adobe_csv,
 )
 from adobe_stock.settings import load_settings
@@ -351,11 +353,13 @@ def cmd_csv(args: argparse.Namespace) -> int:
     if not items:
         print("no uploaded, unsubmitted files in this batch")
         return 1
+    settings = load_settings()
+    items = [replace(item, title=with_ai_label(item.title, settings.ai_title_label)) for item in items]
     # A batch keeps one CSV: reuse (overwrite) the path recorded on its first run.
     output = (
         args.output
         or state.recorded_csv_path(conn, args.batch)
-        or new_csv_path(args.csv_dir or load_settings().csv_dir, args.batch)
+        or new_csv_path(args.csv_dir or settings.csv_dir, args.batch)
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     write_adobe_csv(items, output)

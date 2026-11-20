@@ -10,6 +10,7 @@ There is no generative-AI column: that flag is set in the portal, not in the CSV
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,13 @@ MAX_ROWS = 20_000
 MAX_CSV_BYTES = 20 * 1024 * 1024
 MAX_KEYWORDS = 49
 MAX_TITLE_CHARS = 200
+# Adobe labels generative-AI content itself (portal checkbox), so titles and keywords must not
+# announce it or name AI tools.
+AI_TERM_PATTERN = re.compile(
+    r"\b(?:generative(?:\s+ai)?|ai[\s-]+generated|artificial\s+intelligence|generated|ai|"
+    r"midjourney|dall[\s-]?e|stable\s+diffusion|chatgpt|firefly)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -63,15 +71,38 @@ def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
             problems.append(f"{item.filename}: empty title")
         if len(item.title) > MAX_TITLE_CHARS:
             problems.append(f"{item.filename}: title longer than {MAX_TITLE_CHARS}")
+        found = AI_TERM_PATTERN.search(item.title)
+        if found:
+            problems.append(
+                f"{item.filename}: title mentions {found.group()!r}; Adobe labels AI content itself"
+            )
         if not item.keywords:
             problems.append(f"{item.filename}: no keywords")
         if len(item.keywords) > MAX_KEYWORDS:
             problems.append(f"{item.filename}: more than {MAX_KEYWORDS} keywords")
+        banned = next((k for k in item.keywords if AI_TERM_PATTERN.search(k)), None)
+        if banned:
+            problems.append(
+                f"{item.filename}: keyword {banned!r} mentions AI; Adobe labels AI content itself"
+            )
         if item.category and not (item.category.isdigit() and int(item.category) in CATEGORIES):
             problems.append(
                 f"{item.filename}: category must be a code from 1-{len(CATEGORIES)}, got {item.category!r}"
             )
     return problems
+
+
+def with_ai_label(title: str, label: str) -> str:
+    """Start the title with `label` (e.g. "Generative AI"), keeping it within the title limit.
+
+    An empty label leaves the title alone; a title that already starts with the label is kept.
+    """
+    label = label.strip()
+    if not label or title.lower().startswith(label.lower()):
+        return title
+    room = MAX_TITLE_CHARS - len(label) - 1
+    body = title if len(title) <= room else title[:room].rsplit(" ", 1)[0] or title[:room]
+    return f"{label} {body}"
 
 
 def write_adobe_csv(items: list[Item], destination: Path) -> None:
@@ -106,6 +137,8 @@ def validate_csv_file(path: Path, expected_filenames: set[str]) -> list[str]:
         problems.append(f"{len(data)} rows, limit is {MAX_ROWS}")
     if any(len(row) != len(HEADERS) for row in data):
         problems.append("some rows do not have exactly 5 columns")
+    if any(len(row) > 1 and len(row[1]) > MAX_TITLE_CHARS for row in data):
+        problems.append(f"some titles are longer than {MAX_TITLE_CHARS} characters")
     names = [row[0] for row in data if row]
     if len(set(names)) != len(names):
         problems.append("duplicate filenames")

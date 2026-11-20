@@ -262,3 +262,64 @@ def test_old_database_without_new_columns_is_upgraded(tmp_path):
     conn.close()
     columns = {r["name"] for r in state.open_db(db).execute("PRAGMA table_info(files)")}
     assert {"mtime_ns", "root", "people_visible", "content_type"} <= columns
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Generative AI red apple on table", "red apple on table"),
+        ("AI-generated landscape with mountains", "landscape with mountains"),
+        ("Mountain lake, Midjourney style", "Mountain lake, style"),
+        ("Artificial intelligence robot", "robot"),
+        ("Fair weather over a maiden voyage", "Fair weather over a maiden voyage"),  # no false hits
+    ],
+)
+def test_clean_title_removes_ai_wording(raw, expected):
+    assert caption.clean_title(raw) == expected
+
+
+def test_clean_keywords_drops_every_ai_term_but_not_lookalikes():
+    kept = caption.clean_keywords(["AI", "generative art", "dall-e 3", "Firefly", "paint", "maiden", "air"])
+    assert kept == ("paint", "maiden", "air")
+
+
+def test_prompt_forbids_ai_wording_in_titles():
+    for term in ("'AI'", "'generative'", "'Midjourney'", "'Firefly'"):
+        assert term in caption.SYSTEM_PROMPT
+
+
+def test_title_that_is_only_ai_wording_is_reported(tmp_path, monkeypatch):
+    sources = []
+    path = tmp_path / "s.jpg"
+    Image.new("RGB", (2000, 2000), (9, 9, 9)).save(path, "JPEG")
+    sources.append(path)
+
+    def only_ai(command, cwd):
+        names = sorted(p.name for p in Path(cwd).glob("*.jpg"))
+        return envelope([{"file": n, "title": "AI generated", "keywords": ["k"]} for n in names])
+
+    monkeypatch.setattr(caption, "run_claude", only_ai)
+    [result] = caption.caption_group(sources)
+    assert result.error == "empty title or keywords"
+
+
+def test_csv_titles_start_with_the_label_and_the_stored_title_stays_clean(tmp_path, monkeypatch):
+    import csv as csv_module
+
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_unlabelled_folder(tmp_path, ["a.jpg"])))
+    monkeypatch.setattr(caption, "run_claude", fake_claude_ok)
+    run(db, "caption")
+    conn = state.open_db(db)
+    for path, _ in state.pending_files(conn):
+        state.mark_uploaded(conn, path)
+
+    out = tmp_path / "out.csv"
+    assert run(db, "csv", "1", "--output", str(out)) == 0
+    title = next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"]
+    assert title.startswith("Generative AI A title")
+    assert conn.execute("SELECT title FROM files").fetchone()["title"].startswith("A title")
+
+    monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
+    assert run(db, "csv", "1", "--output", str(out)) == 0
+    assert next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"].startswith("A title")

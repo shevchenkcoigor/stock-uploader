@@ -12,6 +12,7 @@ from adobe_stock.metadata_csv import (
     check_items,
     read_source,
     validate_csv_file,
+    with_ai_label,
     write_adobe_csv,
 )
 from adobe_stock.settings import DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT, load_settings
@@ -171,3 +172,30 @@ def test_empty_host_is_rejected(monkeypatch):
     monkeypatch.setenv("ADOBE_SFTP_HOST", "sftp://")
     with pytest.raises(ValueError):
         load_settings()
+
+
+def test_check_items_rejects_ai_wording_in_title_and_keywords():
+    items = [
+        Item("a.jpg", "Generative AI forest", ("tree",)),
+        Item("b.jpg", "Forest at dawn", ("tree", "Midjourney")),
+        Item("c.jpg", "Forest at dawn", ("tree", "air")),
+    ]
+    problems = check_items(items, {"a.jpg", "b.jpg", "c.jpg"})
+    assert any("a.jpg" in p and "title mentions" in p for p in problems)
+    assert any("b.jpg" in p and "keyword 'Midjourney'" in p for p in problems)
+    assert not any("c.jpg" in p for p in problems)
+
+
+def test_with_ai_label_prefixes_trims_and_can_be_disabled():
+    assert with_ai_label("Red apple", "Generative AI") == "Generative AI Red apple"
+    assert with_ai_label("generative ai Red apple", "Generative AI") == "generative ai Red apple"
+    assert with_ai_label("Red apple", "") == "Red apple"
+    long_title = "word " * 60
+    labelled = with_ai_label(long_title.strip(), "Generative AI")
+    assert labelled.startswith("Generative AI word") and len(labelled) <= 200
+
+
+def test_settings_label_default_and_override(monkeypatch):
+    assert load_settings().ai_title_label == "Generative AI"
+    monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
+    assert load_settings().ai_title_label == ""

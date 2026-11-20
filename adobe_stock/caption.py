@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 from adobe_stock.categories import CATEGORIES, category_menu
-from adobe_stock.metadata_csv import MAX_KEYWORDS, MAX_TITLE_CHARS
+from adobe_stock.metadata_csv import AI_TERM_PATTERN, MAX_KEYWORDS, MAX_TITLE_CHARS
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 # (model id, short note shown in the picker); extend this list when new models appear.
@@ -29,27 +29,16 @@ PREVIEW_MAX_SIDE = 1568
 PREVIEW_QUALITY = 85
 CALL_TIMEOUT_SECONDS = 300
 ERROR_TAIL_CHARS = 300
-# Labels Adobe adds itself through the AI flag; keeping them out of keywords.
-BANNED_KEYWORDS = frozenset(
-    {
-        "ai",
-        "ai generated",
-        "ai-generated",
-        "generative ai",
-        "artificial intelligence",
-        "generated",
-        "midjourney",
-        "dall-e",
-        "stable diffusion",
-    }
-)
-
 SYSTEM_PROMPT = (
     "You write metadata for Adobe Stock. Open each listed image with the Read tool and answer "
     "only with the requested JSON.\n"
     "For every image:\n"
     "- title: a factual English description, 6-15 words, under 150 characters. Describe only "
-    "what is visible. No brand names, trademarks, people's names or quotation marks.\n"
+    "what is visible. No brand names, trademarks, people's names or quotation marks. Never "
+    "mention that the image is AI-made or name AI tools: the words 'AI', 'generative', "
+    "'generated', 'artificial intelligence', 'Midjourney', 'DALL-E', 'Stable Diffusion', "
+    "'ChatGPT' and 'Firefly' must not appear in the title or in the keywords; the tool adds "
+    "the required 'Generative AI' label to the title itself.\n"
     "- keywords: 25-35 English keywords (single words or short phrases), most relevant first, "
     "covering subject, setting, colors, mood, composition and likely uses. Only things visible "
     "or clearly implied. No brands, trademarks, artist names, and no words like 'AI' or "
@@ -126,7 +115,8 @@ def make_preview(source: Path, destination: Path) -> None:
 
 
 def clean_title(raw: str) -> str:
-    title = " ".join(raw.replace('"', "").split())
+    title = " ".join(AI_TERM_PATTERN.sub(" ", raw.replace('"', "")).split())
+    title = title.strip(" ,;:-")
     if len(title) <= MAX_TITLE_CHARS:
         return title
     return title[:MAX_TITLE_CHARS].rsplit(" ", 1)[0]
@@ -137,7 +127,7 @@ def clean_keywords(raw: list[str]) -> tuple[str, ...]:
     kept: list[str] = []
     for keyword in raw:
         normalized = " ".join(keyword.split()).lower()
-        if not normalized or normalized in seen or normalized in BANNED_KEYWORDS:
+        if not normalized or normalized in seen or AI_TERM_PATTERN.search(normalized):
             continue
         seen.add(normalized)
         kept.append(normalized)
