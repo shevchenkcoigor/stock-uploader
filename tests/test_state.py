@@ -238,3 +238,54 @@ def test_large_set_splits_into_several_batches(monkeypatch):
     monkeypatch.setattr(metadata_csv, "MAX_ROWS", 2)
     items = [Item(f"{i}.jpg", "t", ("k",)) for i in range(5)]
     assert [len(g) for g in metadata_csv.split_into_batches(items)] == [2, 2, 1]
+
+
+def test_event_log_records_scan_invalid_files_and_filters(tmp_path, capsys):
+    db = tmp_path / "s.db"
+    folder = make_folder(tmp_path, "f1", ["a.jpg", "b.jpg"])
+    (folder / "bad.jpg").write_bytes(b"not a jpeg")
+    main(["--db", str(db), "scan", str(folder)])
+    capsys.readouterr()
+
+    assert main(["--db", str(db), "log"]) == 0
+    out = capsys.readouterr().out
+    assert "SCAN" not in out and "scan" in out
+    assert "invalid" in out and "bad.jpg" in out
+
+    assert main(["--db", str(db), "log", "--level", "warning"]) == 0
+    only_warnings = capsys.readouterr().out
+    assert "bad.jpg" in only_warnings and "added" not in only_warnings
+    assert main(["--db", str(db), "log", "--command", "upload"]) == 0
+    assert "no events" in capsys.readouterr().out
+
+
+def test_event_log_survives_rescans_and_old_databases_get_the_table(tmp_path):
+    db = tmp_path / "s.db"
+    folder = make_folder(tmp_path, "f1", ["a.jpg"])
+    main(["--db", str(db), "scan", str(folder)])
+    main(["--db", str(db), "scan", str(folder)])
+    conn = state.open_db(db)
+    assert len(state.recent_events(conn, 10, command="scan")) == 2
+
+    conn.execute("DROP TABLE events")
+    conn.commit()
+    assert state.recent_events(state.open_db(db), 10) == []  # recreated on open
+
+
+def test_upload_logs_each_file_and_the_summary(tmp_path, monkeypatch):
+    db = tmp_path / "s.db"
+    main(["--db", str(db), "scan", str(make_folder(tmp_path, "f1", ["a.jpg", "b.jpg"]))])
+
+    def fake_upload(settings, files, on_success):
+        on_success(files[0][0])
+        return [files[1][1]]  # second one fails
+
+    monkeypatch.setattr("adobe_stock.cli.upload_files", fake_upload)
+    monkeypatch.setattr("adobe_stock.cli.load_settings", lambda: None)
+    assert main(["--db", str(db), "upload", "--batch", "1"]) == 1
+
+    events = state.recent_events(state.open_db(db), 20, command="upload")
+    messages = [(e["level"], e["filename"], e["message"]) for e in events]
+    assert ("info", "a.jpg", "uploaded as a.jpg") in messages
+    assert ("error", "b.jpg", "upload failed") in messages
+    assert events[-1]["level"] == "error" and "1 uploaded, 1 failed" in events[-1]["message"]

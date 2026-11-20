@@ -93,8 +93,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print("Files without a metadata row are waiting: run `caption` to generate them.")
     for row in state.invalid_files(conn, root)[:MAX_INVALID_SHOWN]:
         print(f"INVALID {row['path']}: {row['error']}")
+    state.log_event(
+        conn,
+        "scan",
+        f"{root}: added {result.added}, need metadata {result.needs_metadata}, "
+        f"unchanged {result.unchanged}, invalid {result.invalid}, new batches {result.batches_created}",
+    )
+    for row in state.invalid_files(conn, root):
+        state.log_event(conn, "scan", f"invalid: {row['error']}", "warning", Path(row["path"]).name)
     for name in result.changed_after_upload:
         print(f"WARNING {name} changed after upload; not re-uploaded")
+        state.log_event(conn, "scan", "changed after upload; not re-uploaded", "warning", name)
     return 0
 
 
@@ -138,6 +147,7 @@ def cmd_caption(args: argparse.Namespace) -> int:
                 except caption.ClaudeCallError as error:
                     failed_calls += 1
                     errors.append(str(error))
+                    state.log_event(conn, "caption", str(error), "error")
                     continue
                 failed_calls = 0
                 captioned += _store_results(conn, results, errors, flagged)
@@ -146,6 +156,13 @@ def cmd_caption(args: argparse.Namespace) -> int:
                 break
 
     batches = state.assign_batches(conn, args.batch_size)
+    state.log_event(
+        conn,
+        "caption",
+        f"model {model}: captioned {captioned} of {len(todo)}, flagged {len(flagged)}, "
+        f"errors {len(errors)}, new batches {batches}",
+        "error" if errors else "info",
+    )
     print(f"captioned {captioned} of {len(todo)}, flagged for review {len(flagged)}, new batches {batches}")
     for message in flagged[:MAX_ERRORS_SHOWN]:
         print(f"REVIEW {message}")
@@ -161,12 +178,14 @@ def _store_results(conn, results: list, errors: list[str], flagged: list[str]) -
     for result in results:
         if result.error:
             state.record_error(conn, result.path, result.error)
+            state.log_event(conn, "caption", result.error, "error", result.path.name)
             errors.append(f"{result.path.name}: {result.error}")
             continue
         item = Item(result.path.name, result.title, result.keywords, result.category)
         problems = check_items([item], {item.filename})
         if problems:
             state.record_error(conn, result.path, "; ".join(problems))
+            state.log_event(conn, "caption", "; ".join(problems), "error", result.path.name)
             errors.append(f"{result.path.name}: {'; '.join(problems)}")
             continue
         state.set_metadata(
@@ -180,10 +199,23 @@ def _store_results(conn, results: list, errors: list[str], flagged: list[str]) -
             result.review_reason,
         )
         if result.review_reason:
+            state.log_event(conn, "caption", result.review_reason, "warning", result.path.name)
             flagged.append(f"{result.path.name}: {result.review_reason}")
             continue
         stored += 1
     return stored
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    """Show the history of what the commands did, newest last."""
+    rows = state.recent_events(state.open_db(args.db), args.limit, args.command, args.level)
+    if not rows:
+        print("no events")
+        return 0
+    for row in rows:
+        target = f" {row['filename']}:" if row["filename"] else ""
+        print(f"{row['at']}  {row['level'].upper():7}  {row['command']:9}{target} {row['message']}")
+    return 0
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -209,6 +241,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
     conn = state.open_db(args.db)
     count = state.approve_reviewed(conn, None if args.all else args.names)
     batches = state.assign_batches(conn, args.batch_size)
+    scope = "all" if args.all else ", ".join(args.names)
+    state.log_event(conn, "approve", f"approved {count} files ({scope}), new batches {batches}")
     print(f"approved {count} files, new batches {batches}")
     return 0
 
@@ -277,7 +311,26 @@ def cmd_upload(args: argparse.Namespace) -> int:
         print(f"nothing pending in batch {batch}")
         return 0
     print(f"uploading batch {batch}: {len(files)} files")
-    failed = upload_files(load_settings(), files, on_success=lambda path: state.mark_uploaded(conn, path))
+    state.log_event(conn, "upload", f"batch {batch}: started, {len(files)} files")
+    remote_names = dict(files)
+
+    def on_success(path: Path) -> None:
+        state.mark_uploaded(conn, path)
+        state.log_event(conn, "upload", f"uploaded as {remote_names[path]}", filename=path.name)
+
+    try:
+        failed = upload_files(load_settings(), files, on_success=on_success)
+    except Exception as error:  # connection or login problems end the whole run
+        state.log_event(conn, "upload", f"batch {batch}: aborted: {error}", "error")
+        raise
+    for name in failed:
+        state.log_event(conn, "upload", "upload failed", "error", name)
+    state.log_event(
+        conn,
+        "upload",
+        f"batch {batch}: finished, {len(files) - len(failed)} uploaded, {len(failed)} failed",
+        "error" if failed else "info",
+    )
     return 1 if failed else 0
 
 
@@ -304,8 +357,10 @@ def cmd_csv(args: argparse.Namespace) -> int:
     if problems:
         for problem in problems:
             print(f"CSV PROBLEM {problem}")
+            state.log_event(conn, "csv", f"batch {args.batch}: {problem}", "error")
         return 1
     state.record_csv(conn, args.batch, output.resolve())
+    state.log_event(conn, "csv", f"batch {args.batch}: wrote {output} ({len(items)} rows)")
     print(f"wrote {output} ({len(items)} rows, checked against Adobe's CSV rules)")
     rows = state.portal_notes(conn, args.batch)
     notes = write_portal_notes(output, args.batch, rows)
@@ -325,6 +380,7 @@ def cmd_submitted(args: argparse.Namespace) -> int:
     elif not csv_path.exists():
         print(f"WARNING recorded CSV is missing on disk: {csv_path}")
     count = state.mark_batch_submitted(conn, args.batch)
+    state.log_event(conn, "submitted", f"batch {args.batch}: {count} files marked submitted")
     print(f"marked {count} files as submitted")
     return 0
 
@@ -427,6 +483,12 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--batch-size", type=_batch_size, default=DEFAULT_BATCH_SIZE)
     approve.set_defaults(func=cmd_approve)
 
+    log = sub.add_parser("log", help="show the history of scans, captions, uploads and other actions")
+    log.add_argument("--limit", type=int, default=50, help="newest N events (default 50)")
+    log.add_argument("--command", choices=sorted(MUTATING_COMMANDS | {"restore"}), help="only this command")
+    log.add_argument("--level", choices=("info", "warning", "error"), help="only this level")
+    log.set_defaults(func=cmd_log)
+
     sub.add_parser("status", help="show batches and file statuses").set_defaults(func=cmd_status)
     return parser
 
@@ -438,6 +500,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     if args.db.exists():
         args.db.replace(args.db.with_suffix(".db.replaced"))
     restored = backup.restore_latest(args.db, backup.backup_dir_for(args.db))
+    state.log_event(state.open_db(args.db), "restore", f"restored from {restored}")
     print(f"restored from {restored}")
     return 0
 

@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS files (
     error TEXT,
     updated_at TEXT NOT NULL
 );
+-- Append-only history of what the commands did; never rewritten by other operations.
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    command TEXT NOT NULL,
+    level TEXT NOT NULL,
+    filename TEXT,
+    message TEXT NOT NULL
+);
 -- The SFTP root is flat, so a name may be used by only one live (non-invalid) file.
 CREATE UNIQUE INDEX IF NOT EXISTS files_live_filename
     ON files(filename) WHERE status != 'invalid';
@@ -412,3 +421,33 @@ def status_summary(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         GROUP BY b.id, f.status ORDER BY b.id, f.status
         """
     ).fetchall()
+
+
+def log_event(
+    conn: sqlite3.Connection, command: str, message: str, level: str = "info", filename: str | None = None
+) -> None:
+    """Append one line to the history (level: info, warning or error)."""
+    with conn:
+        conn.execute(
+            "INSERT INTO events (at, command, level, filename, message) VALUES (?, ?, ?, ?, ?)",
+            (_now(), command, level, filename, message),
+        )
+
+
+def recent_events(
+    conn: sqlite3.Connection, limit: int, command: str | None = None, level: str | None = None
+) -> list[sqlite3.Row]:
+    """The newest `limit` events matching the filters, oldest first."""
+    conditions, params = [], []
+    if command:
+        conditions.append("command = ?")
+        params.append(command)
+    if level:
+        conditions.append("level = ?")
+        params.append(level)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = conn.execute(
+        f"SELECT at, command, level, filename, message FROM events {where} ORDER BY id DESC LIMIT ?",
+        [*params, limit],
+    ).fetchall()
+    return rows[::-1]
