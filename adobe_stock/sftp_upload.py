@@ -1,39 +1,15 @@
-"""SFTP upload to Adobe Stock. Credentials come from environment variables only."""
+"""SFTP upload to Adobe Stock. Connection settings come from `adobe_stock.settings`."""
 
-import os
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 import paramiko
 
-DEFAULT_HOST = "sftp.contributor.adobestock.com"
-DEFAULT_PORT = 22
-
-
-@dataclass(frozen=True)
-class SftpConfig:
-    host: str
-    port: int
-    username: str
-    password: str
-
-    @classmethod
-    def from_env(cls) -> "SftpConfig":
-        username = os.environ.get("ADOBE_SFTP_USER")
-        password = os.environ.get("ADOBE_SFTP_PASSWORD")
-        if not username or not password:
-            raise RuntimeError("Set ADOBE_SFTP_USER and ADOBE_SFTP_PASSWORD")
-        return cls(
-            host=os.environ.get("ADOBE_SFTP_HOST", DEFAULT_HOST),
-            port=int(os.environ.get("ADOBE_SFTP_PORT", DEFAULT_PORT)),
-            username=username,
-            password=password,
-        )
+from adobe_stock.settings import Settings
 
 
 def upload_files(
-    config: SftpConfig,
+    settings: Settings,
     files: list[tuple[Path, str]],
     on_success: Callable[[Path], None] = lambda _path: None,
 ) -> list[str]:
@@ -41,10 +17,13 @@ def upload_files(
 
     on_success runs right after each file, so progress survives an interrupted run.
     """
-    transport = paramiko.Transport((config.host, config.port))
+    settings.require_sftp_credentials()
+    transport = paramiko.Transport((settings.sftp_host, settings.sftp_port))
     failed: list[str] = []
     try:
-        transport.connect(username=config.username, password=config.password)
+        transport.connect(
+            username=settings.sftp_user, password=settings.sftp_password.get_secret_value()
+        )
         client = paramiko.SFTPClient.from_transport(transport)
         if client is None:
             raise RuntimeError("could not open an SFTP session on the connection")

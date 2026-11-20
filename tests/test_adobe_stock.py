@@ -3,9 +3,11 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+from pydantic import ValidationError
 
 from adobe_stock.metadata_csv import HEADERS, Item, check_items, read_source, write_adobe_csv
 from adobe_stock.validate import validate_image
+from adobe_stock.settings import DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT, load_settings
 
 
 def make_jpeg(path: Path, size=(2000, 2000)) -> Path:
@@ -77,9 +79,43 @@ def test_too_many_rows_is_reported():
     assert any("limit is 5000" in p for p in problems)
 
 
-def test_sftp_config_requires_credentials(monkeypatch):
-    from adobe_stock.sftp_upload import SftpConfig
-
-    monkeypatch.delenv("ADOBE_SFTP_USER", raising=False)
+def test_settings_defaults_and_missing_credentials():
+    settings = load_settings()
+    assert (settings.sftp_host, settings.sftp_port) == (DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT)
     with pytest.raises(RuntimeError):
-        SftpConfig.from_env()
+        settings.require_sftp_credentials()
+
+
+def test_settings_read_dotenv_and_hide_the_password(tmp_path):
+    (tmp_path / ".env").write_text(
+        "ADOBE_SFTP_HOST=sftp.example.test\nADOBE_SFTP_PORT=2222\nADOBE_SFTP_USER=me\n"
+        "ADOBE_SFTP_PASSWORD='p w'\nUNRELATED=1\n",
+        encoding="utf-8",
+    )
+    settings = load_settings()
+    assert (settings.sftp_host, settings.sftp_port, settings.sftp_user) == ("sftp.example.test", 2222, "me")
+    assert settings.sftp_password.get_secret_value() == "p w"
+    assert "p w" not in repr(settings)
+    settings.require_sftp_credentials()
+
+
+def test_real_environment_overrides_dotenv(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("ADOBE_SFTP_PORT=2222\n", encoding="utf-8")
+    monkeypatch.setenv("ADOBE_SFTP_PORT", "22000")
+    assert load_settings().sftp_port == 22000
+
+
+@pytest.mark.parametrize("port", ["abc", "0", "70000"])
+def test_invalid_port_is_rejected(monkeypatch, port):
+    monkeypatch.setenv("ADOBE_SFTP_PORT", port)
+    with pytest.raises(ValidationError):
+        load_settings()
+
+
+def test_folder_settings_come_from_env(tmp_path, monkeypatch):
+    assert load_settings().backup_dir is None
+    assert load_settings().csv_dir == Path("csv")
+    monkeypatch.setenv("ADOBE_BACKUP_DIR", str(tmp_path / "bk"))
+    monkeypatch.setenv("ADOBE_CSV_DIR", str(tmp_path / "out"))
+    settings = load_settings()
+    assert settings.backup_dir == tmp_path / "bk" and settings.csv_dir == tmp_path / "out"

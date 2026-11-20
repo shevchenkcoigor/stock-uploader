@@ -1,21 +1,21 @@
 """Backups and integrity checks for the state database (our only source of truth)."""
 
-import os
 import shutil
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from adobe_stock.settings import load_settings
+
 DEFAULT_KEEP = 30
 BACKUP_SUFFIX = ".bak"
 READ_ONLY = 0o444
-BACKUP_DIR_ENV = "ADOBE_BACKUP_DIR"
 
 
 def backup_dir_for(db_path: Path) -> Path:
     """Default is a sibling folder; set ADOBE_BACKUP_DIR to keep copies on another disk."""
-    override = os.environ.get(BACKUP_DIR_ENV)
-    return Path(override) if override else db_path.parent / f"{db_path.stem}_backups"
+    override = load_settings().backup_dir
+    return override if override else db_path.parent / f"{db_path.stem}_backups"
 
 
 def list_backups(backup_dir: Path, stem: str) -> list[Path]:

@@ -182,7 +182,6 @@ def test_upload_without_batch_and_without_terminal_takes_last_batch_only(tmp_pat
         return []
 
     monkeypatch.setattr(cli, "upload_files", fake_upload)
-    monkeypatch.setattr(cli.SftpConfig, "from_env", classmethod(lambda cls: None))
 
     run(db, "upload")  # pytest has no TTY, so the last pending batch is used
     assert sorted(uploaded) == ["2.jpg", "3.jpg"]

@@ -5,11 +5,6 @@ from adobe_stock.cli import main
 from tests.test_state import make_folder
 
 
-@pytest.fixture(autouse=True)
-def isolated_backup_dir(monkeypatch):
-    monkeypatch.delenv(backup.BACKUP_DIR_ENV, raising=False)
-
-
 def run(db, *args):
     return main(["--db", str(db), *args])
 

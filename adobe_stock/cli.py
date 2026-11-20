@@ -5,7 +5,6 @@ step stay manual in the Contributor Portal.
 """
 
 import argparse
-import os
 import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -14,14 +13,13 @@ from pathlib import Path
 
 from adobe_stock import backup, caption, state
 from adobe_stock.metadata_csv import MAX_ROWS, Item, check_items, read_source, write_adobe_csv
-from adobe_stock.sftp_upload import SftpConfig, upload_files
+from adobe_stock.settings import load_settings
+from adobe_stock.sftp_upload import upload_files
 from adobe_stock.validate import validate_image
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg"}
 DEFAULT_DB = Path("state.db")
 DEFAULT_IMAGES_DIR = Path("images")
-DEFAULT_CSV_DIR = Path("csv")
-CSV_DIR_ENV = "ADOBE_CSV_DIR"
 DEFAULT_BATCH_SIZE = 1000
 MAX_INVALID_SHOWN = 30
 MUTATING_COMMANDS = frozenset({"scan", "caption", "upload", "csv", "submitted"})
@@ -193,7 +191,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
         return 0
     print(f"uploading batch {batch}: {len(files)} files")
     failed = upload_files(
-        SftpConfig.from_env(), files, on_success=lambda path: state.mark_uploaded(conn, path)
+        load_settings(), files, on_success=lambda path: state.mark_uploaded(conn, path)
     )
     return 1 if failed else 0
 
@@ -213,7 +211,7 @@ def cmd_csv(args: argparse.Namespace) -> int:
     output = (
         args.output
         or state.recorded_csv_path(conn, args.batch)
-        or new_csv_path(args.csv_dir, args.batch)
+        or new_csv_path(args.csv_dir or load_settings().csv_dir, args.batch)
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     write_adobe_csv(items, output)
@@ -299,8 +297,8 @@ def build_parser() -> argparse.ArgumentParser:
     csv_cmd = sub.add_parser("csv", help="write the Adobe CSV for a batch")
     csv_cmd.add_argument("batch", type=int)
     csv_cmd.add_argument(
-        "--csv-dir", type=Path, default=Path(os.environ.get(CSV_DIR_ENV, DEFAULT_CSV_DIR)),
-        help=f"folder for generated CSVs (default {DEFAULT_CSV_DIR}, or ${CSV_DIR_ENV})",
+        "--csv-dir", type=Path,
+        help="folder for generated CSVs (default: ADOBE_CSV_DIR from env/.env, else csv/)",
     )
     csv_cmd.add_argument("--output", type=Path, help="explicit file instead of an auto-named one")
     csv_cmd.set_defaults(func=cmd_csv)
