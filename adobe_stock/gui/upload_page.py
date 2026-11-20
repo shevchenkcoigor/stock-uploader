@@ -43,6 +43,13 @@ class UploadPage(TaskPage):
         except (ValidationError, ValueError) as error:
             self.write(f"Проверьте настройки SFTP: {error}")
             return
+        if not settings.sftp_user or not settings.sftp_password.get_secret_value():
+            self.write(
+                "Не заданы логин и пароль SFTP. Откройте «Настройки», введите их и нажмите «Сохранить»; "
+                "кнопка «Проверить SFTP» входит на сервер, ничего не загружая."
+            )
+            self.status.setText("Нужны логин и пароль SFTP")
+            return
 
         def work(conn, progress, should_stop):
             return services.upload_batch(conn, int(batch), settings, progress, should_stop)

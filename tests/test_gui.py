@@ -140,6 +140,7 @@ def test_upload_page_reports_a_connection_error(app, window, prefs, tmp_path, mo
         raise OSError("network down")
 
     monkeypatch.setattr(services, "upload_files", refuse)
+    prefs.set_text("sftp_user", "me")  # the password comes from the in-memory store
     upload_page = page(window, "Загрузка")
     upload_page.refresh()
     upload_page._run()
@@ -186,3 +187,19 @@ def test_cancelling_stops_a_running_task(app, window):
     finish(app, scan_page)
     assert seen == ["stopped"]
     assert isinstance(Path(scan_page.ctx.db_path), Path)
+
+
+def test_upload_without_sftp_login_explains_what_to_do_and_starts_nothing(app, window, prefs, tmp_path):
+    folder = make_unlabelled_folder(tmp_path, ["a.jpg"])
+    conn = state.open_db(prefs.db_path)
+    services.scan(conn, folder.resolve(), services.find_images(folder), None, 1000)
+    state.set_metadata(conn, state.files_needing_metadata(conn, 5)[0], "T", ("k",))
+    state.assign_batches(conn, 1000)
+    conn.close()
+
+    upload_page = page(window, "Загрузка")
+    upload_page.refresh()
+    upload_page._run()  # no SFTP user saved in the preferences
+    assert upload_page._task is None
+    text = upload_page.output.toPlainText()
+    assert "Настройки" in text and ".env" not in text
