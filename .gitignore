@@ -4,3 +4,7 @@ __pycache__/
 *.csv
 .env
 state.db
+state_backups/
+*.db.replaced
+csv/
+images/

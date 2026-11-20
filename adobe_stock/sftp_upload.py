@@ -34,10 +34,10 @@ class SftpConfig:
 
 def upload_files(
     config: SftpConfig,
-    files: list[Path],
+    files: list[tuple[Path, str]],
     on_success: Callable[[Path], None] = lambda _path: None,
 ) -> list[str]:
-    """Upload files to the account root; return names that failed.
+    """Upload (local path, remote name) pairs to the account root; return names that failed.
 
     on_success runs right after each file, so progress survives an interrupted run.
     """
@@ -46,14 +46,14 @@ def upload_files(
     try:
         transport.connect(username=config.username, password=config.password)
         client = paramiko.SFTPClient.from_transport(transport)
-        for path in files:
+        for path, remote_name in files:
             try:
-                client.put(str(path), path.name)
+                client.put(str(path), remote_name)
                 on_success(path)
-                print(f"uploaded {path.name}")
+                print(f"uploaded {remote_name}")
             except (OSError, paramiko.SSHException) as error:
-                print(f"FAILED {path.name}: {error}")
-                failed.append(path.name)
+                print(f"FAILED {remote_name}: {error}")
+                failed.append(remote_name)
     finally:
         transport.close()
     return failed

@@ -110,15 +110,16 @@ def estimate_row_bytes(item: Item) -> int:
     return len(buffer.getvalue().encode("utf-8"))
 
 
-def split_into_batches(items: list[Item]) -> list[list[Item]]:
-    """Group items so that each group fits both the row limit and the 1 MB limit."""
+def split_into_batches(items: list[Item], batch_size: int | None = None) -> list[list[Item]]:
+    """Group items so that each group fits batch_size, the row limit and the 1 MB limit."""
+    max_rows = min(batch_size or MAX_ROWS, MAX_ROWS)
     header_bytes = len(",".join(HEADERS).encode("utf-8")) + 2
     batches: list[list[Item]] = []
     current: list[Item] = []
     used = header_bytes
     for item in items:
         row_bytes = estimate_row_bytes(item)
-        if current and (len(current) >= MAX_ROWS or used + row_bytes > MAX_CSV_BYTES):
+        if current and (len(current) >= max_rows or used + row_bytes > MAX_CSV_BYTES):
             batches.append(current)
             current, used = [], header_bytes
         current.append(item)
