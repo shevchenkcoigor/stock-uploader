@@ -7,6 +7,7 @@ This module only parses arguments, asks questions and prints; the work itself is
 """
 
 import argparse
+import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +22,20 @@ MAX_INVALID_SHOWN = 30
 MUTATING_COMMANDS = frozenset({"scan", "caption", "approve", "upload", "csv", "submitted"})
 MAX_ERRORS_SHOWN = 20
 
+_connections: list[sqlite3.Connection] = []
+
+
+def open_state(db: Path) -> sqlite3.Connection:
+    """Open the state DB and remember the connection so main() closes it (Windows locks open files)."""
+    conn = state.open_db(db)
+    _connections.append(conn)
+    return conn
+
+
+def _close_connections() -> None:
+    while _connections:
+        _connections.pop().close()
+
 
 def cmd_scan(args: argparse.Namespace) -> int:
     root = args.folder.resolve()
@@ -28,7 +43,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if not images:
         print("no JPEG files found")
         return 2
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     report = services.scan(conn, root, images, args.metadata, args.batch_size)
     result = report.result
     print(
@@ -64,7 +79,7 @@ def pick_model(ask: Callable[[str], str] = input) -> str:
 def cmd_caption(args: argparse.Namespace) -> int:
     """Generate titles and keywords for files that have none, then batch them."""
     model = args.model or (pick_model() if sys.stdin.isatty() else caption.DEFAULT_MODEL)
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     report = services.caption_files(
         conn,
         model,
@@ -91,7 +106,7 @@ def cmd_caption(args: argparse.Namespace) -> int:
 
 def cmd_log(args: argparse.Namespace) -> int:
     """Show the history of what the commands did, newest last."""
-    rows = state.recent_events(state.open_db(args.db), args.limit, args.command, args.level)
+    rows = state.recent_events(open_state(args.db), args.limit, args.command, args.level)
     if not rows:
         print("no events")
         return 0
@@ -103,7 +118,7 @@ def cmd_log(args: argparse.Namespace) -> int:
 
 def cmd_review(args: argparse.Namespace) -> int:
     """List files that Claude flagged as possible Adobe AI-policy risks."""
-    rows = state.review_files(state.open_db(args.db))
+    rows = state.review_files(open_state(args.db))
     if not rows:
         print("nothing to review")
         return 0
@@ -121,7 +136,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if not args.names and not args.all:
         print("give file names to approve, or --all")
         return 2
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     report = services.approve(conn, None if args.all else args.names, args.batch_size)
     print(f"approved {report.count} files, new batches {report.new_batches}")
     return 0
@@ -144,7 +159,7 @@ def pick_batch(batches: list, ask: Callable[[str], str] = input) -> int:
 
 
 def cmd_upload(args: argparse.Namespace) -> int:
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     batch = args.batch
     if batch is None:
         batches = state.pending_batches(conn)
@@ -167,7 +182,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
 
 
 def cmd_csv(args: argparse.Namespace) -> int:
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     report = services.build_csv(conn, args.batch, load_settings(), args.output, args.csv_dir)
     if report.empty:
         print("no uploaded, unsubmitted files in this batch")
@@ -185,7 +200,7 @@ def cmd_csv(args: argparse.Namespace) -> int:
 
 
 def cmd_submitted(args: argparse.Namespace) -> int:
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     report = services.mark_submitted(conn, args.batch)
     for warning in report.warnings:
         print(f"WARNING {warning}")
@@ -194,7 +209,7 @@ def cmd_submitted(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    conn = state.open_db(args.db)
+    conn = open_state(args.db)
     current_batch = object()
     for row in state.status_summary(conn):
         if row["batch_id"] != current_batch:
@@ -313,7 +328,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     if args.db.exists():
         args.db.replace(args.db.with_suffix(".db.replaced"))
     restored = backup.restore_latest(args.db, backup.backup_dir_for(args.db))
-    state.log_event(state.open_db(args.db), "restore", f"restored from {restored}")
+    state.log_event(open_state(args.db), "restore", f"restored from {restored}")
     print(f"restored from {restored}")
     return 0
 
@@ -321,10 +336,16 @@ def cmd_restore(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "restore":
-        return cmd_restore(args)
+        try:
+            return cmd_restore(args)
+        finally:
+            _close_connections()
     try:
         with services.protected(args.db, mutating=args.command in MUTATING_COMMANDS):
-            return args.func(args)
+            try:
+                return args.func(args)
+            finally:
+                _close_connections()  # before the final backup
     except services.StateDbError as error:
         raise SystemExit(str(error)) from error
 

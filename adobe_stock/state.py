@@ -349,10 +349,10 @@ def _assign_batches(conn, root: Path, new_valid: list[tuple[Path, Item]], batch_
 
 
 def invalid_files(conn: sqlite3.Connection, root: Path) -> list[sqlite3.Row]:
-    return conn.execute(
-        "SELECT path, error FROM files WHERE status = ? AND path LIKE ? ORDER BY path",
-        (INVALID, f"{root}/%"),
-    ).fetchall()
+    """Invalid files under `root`. Compared as paths in Python: a LIKE pattern breaks on
+    backslashes (Windows) and treats `_` and `%` in folder names as wildcards."""
+    rows = conn.execute("SELECT path, error FROM files WHERE status = ? ORDER BY path", (INVALID,))
+    return [row for row in rows if Path(row["path"]).is_relative_to(root)]
 
 
 def pending_files(conn: sqlite3.Connection, batch_id: int | None = None) -> list[tuple[Path, str]]:

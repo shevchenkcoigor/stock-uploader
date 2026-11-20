@@ -10,6 +10,7 @@ from adobe_stock.settings import load_settings
 DEFAULT_KEEP = 30
 BACKUP_SUFFIX = ".bak"
 READ_ONLY = 0o444
+WRITABLE = 0o666  # Windows cannot delete a read-only file
 
 
 def backup_dir_for(db_path: Path) -> Path:
@@ -40,6 +41,7 @@ def create_backup(db_path: Path, backup_dir: Path, keep: int = DEFAULT_KEEP) -> 
         destination.close()
     target.chmod(READ_ONLY)
     for old in list_backups(backup_dir, db_path.stem)[:-keep]:
+        old.chmod(WRITABLE)
         old.unlink()
     return target
 

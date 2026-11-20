@@ -134,7 +134,8 @@ def test_upload_files_calls_back_stops_and_collects_failures(monkeypatch):
 
 
 def test_protected_blocks_a_vanished_database_and_backs_up_mutations(tmp_path):
-    db, _ = scanned(tmp_path, ["a.jpg"])
+    db, conn = scanned(tmp_path, ["a.jpg"])
+    conn.close()  # Windows cannot delete a file that is still open
     with services.protected(db):
         pass
     backups = list((tmp_path / "s_backups").glob("*"))

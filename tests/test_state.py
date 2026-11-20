@@ -308,3 +308,27 @@ def test_unreachable_host_is_reported_not_a_traceback_and_files_stay_pending(tmp
     conn = state.open_db(db)
     assert [p.name for p, _ in state.pending_files(conn)] == ["a.jpg"]
     assert state.recent_events(conn, 5, level="error")[-1]["message"].startswith("cannot upload batch 1")
+
+
+def test_invalid_files_are_matched_by_path_not_by_a_like_pattern(tmp_path):
+    conn = state.open_db(tmp_path / "s.db")
+    mine = make_folder(tmp_path, "a_b", ["ok.jpg"])
+    other = make_folder(tmp_path, "axb", ["ok2.jpg"])
+    (mine / "bad.jpg").write_bytes(b"not a jpeg")
+    (other / "bad2.jpg").write_bytes(b"not a jpeg")
+    for folder in (mine, other):
+        main(["--db", str(tmp_path / "s.db"), "scan", str(folder)])
+    # "a_b" as a LIKE pattern would also match the sibling "axb" ("_" is a wildcard)
+    names = [Path(r["path"]).name for r in state.invalid_files(conn, mine.resolve())]
+    assert names == ["bad.jpg"]
+
+
+def test_old_read_only_backups_can_be_pruned(tmp_path):
+    from adobe_stock import backup
+
+    db = tmp_path / "s.db"
+    state.open_db(db).close()
+    for _ in range(4):
+        backup.create_backup(db, tmp_path / "b", keep=2)
+    remaining = backup.list_backups(tmp_path / "b", "s")
+    assert len(remaining) == 2 and all(p.stat().st_mode & 0o222 == 0 for p in remaining)
