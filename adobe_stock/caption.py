@@ -14,7 +14,12 @@ from pathlib import Path
 from PIL import Image
 
 from adobe_stock.categories import CATEGORIES, category_menu
-from adobe_stock.metadata_csv import AI_TERM_PATTERN, MAX_KEYWORDS, MAX_TITLE_CHARS
+from adobe_stock.metadata_csv import (
+    AI_TERM_PATTERN,
+    MAX_KEYWORDS,
+    MAX_TITLE_CHARS,
+    keyword_problem,
+)
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 # (model id, short note shown in the picker); extend this list when new models appear.
@@ -42,7 +47,12 @@ SYSTEM_PROMPT = (
     "- keywords: 25-35 English keywords (single words or short phrases), most relevant first, "
     "covering subject, setting, colors, mood, composition and likely uses. Only things visible "
     "or clearly implied. No brands, trademarks, artist names, and no words like 'AI' or "
-    "'generated'.\n"
+    "'generated'. Each keyword is ONE concept: a single word, or a short phrase only when it "
+    "names one thing (like 'arctic fox'); never join several concepts into one keyword and never "
+    "put a comma or semicolon inside a keyword. Put the main subject first and the individual "
+    "words and concepts of your title within the first 10 keywords. No numbers and no file or "
+    "camera information. If a keyword names a city, state or province, add the country as a "
+    "separate keyword. Use each keyword once.\n"
     "- category: the single best-fitting category code from this list: " + category_menu() + ".\n"
     "- people_visible: true if any person or human-like figure is visible.\n"
     "- content_type: 'photo' if it looks camera-captured and photo-realistic, otherwise "
@@ -123,14 +133,18 @@ def clean_title(raw: str) -> str:
 
 
 def clean_keywords(raw: list[str]) -> tuple[str, ...]:
+    """Normalize Claude's keywords: split on commas, drop duplicates, AI wording, numbers, file info."""
     seen: set[str] = set()
     kept: list[str] = []
-    for keyword in raw:
-        normalized = " ".join(keyword.split()).lower()
-        if not normalized or normalized in seen or AI_TERM_PATTERN.search(normalized):
-            continue
-        seen.add(normalized)
-        kept.append(normalized)
+    for entry in raw:
+        for keyword in entry.replace(";", ",").split(","):  # a comma would split it in the CSV anyway
+            normalized = " ".join(keyword.split()).lower()
+            if not normalized or normalized in seen or AI_TERM_PATTERN.search(normalized):
+                continue
+            if keyword_problem(normalized):
+                continue
+            seen.add(normalized)
+            kept.append(normalized)
     return tuple(kept[:MAX_KEYWORDS])
 
 

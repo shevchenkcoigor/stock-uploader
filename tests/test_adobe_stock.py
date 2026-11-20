@@ -199,3 +199,17 @@ def test_settings_label_default_and_override(monkeypatch):
     assert load_settings().ai_title_label == "Generative AI"
     monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
     assert load_settings().ai_title_label == ""
+
+
+def test_check_items_rejects_commas_numbers_and_file_info_in_keywords():
+    items = [
+        Item("a.jpg", "Forest", ("tree", "london, england")),
+        Item("b.jpg", "Forest", ("tree", "2024")),
+        Item("c.jpg", "Forest", ("tree", "12 mp")),
+        Item("d.jpg", "Forest", ("tree", "arctic fox", "3d render")),
+    ]
+    problems = check_items(items, {"a.jpg", "b.jpg", "c.jpg", "d.jpg"})
+    assert any("a.jpg" in p and "comma" in p for p in problems)
+    assert any("b.jpg" in p and "only a number" in p for p in problems)
+    assert any("c.jpg" in p and "file information" in p for p in problems)
+    assert not any("d.jpg" in p for p in problems)

@@ -30,6 +30,22 @@ AI_TERM_PATTERN = re.compile(
 )
 
 
+# Adobe: no numbers or file information (camera, size, format) in keywords.
+_NUMBER_ONLY = re.compile(r"^[\d\s.,x*-]+$", re.IGNORECASE)
+_FILE_INFO = re.compile(r"\b(?:jpe?g|png|tiff?|\d+\s*(?:mp|mb|kb|px|dpi)|megapixels?)\b", re.IGNORECASE)
+
+
+def keyword_problem(keyword: str) -> str | None:
+    """Why Adobe would not accept this single keyword, or None if it is fine."""
+    if "," in keyword or ";" in keyword:
+        return "contains a comma or semicolon (it would be split into several keywords)"
+    if _NUMBER_ONLY.match(keyword):
+        return "is only a number"
+    if _FILE_INFO.search(keyword):
+        return "looks like file information"
+    return None
+
+
 @dataclass(frozen=True)
 class Item:
     filename: str
@@ -85,6 +101,10 @@ def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
             problems.append(
                 f"{item.filename}: keyword {banned!r} mentions AI; Adobe labels AI content itself"
             )
+        for keyword in item.keywords:
+            reason = keyword_problem(keyword)
+            if reason:
+                problems.append(f"{item.filename}: keyword {keyword!r} {reason}")
         if item.category and not (item.category.isdigit() and int(item.category) in CATEGORIES):
             problems.append(
                 f"{item.filename}: category must be a code from 1-{len(CATEGORIES)}, got {item.category!r}"

@@ -323,3 +323,24 @@ def test_csv_titles_end_with_the_label_and_the_stored_title_stays_clean(tmp_path
     monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
     assert run(db, "csv", "1", "--output", str(out)) == 0
     assert not next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"].endswith("AI")
+
+
+def test_clean_keywords_splits_commas_and_drops_numbers_and_file_info():
+    kept = caption.clean_keywords(
+        ["London, England", "red; blue", "2024", "1920 x 1080", "photo.jpg", "24 mp", "3d render", "red"]
+    )
+    assert kept == ("london", "england", "red", "blue", "3d render")
+
+
+def test_prompt_has_the_keyword_rules():
+    prompt = caption.SYSTEM_PROMPT.lower()
+    for phrase in (
+        "one concept",
+        "comma or semicolon",
+        "main subject first",
+        "first 10 keywords",
+        "no numbers",
+        "add the country",
+        "each keyword once",
+    ):
+        assert phrase in prompt
