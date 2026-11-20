@@ -5,7 +5,10 @@ Each call receives several downscaled images and returns JSON. The call is slimm
 tokens instead of the ~150k a default Claude Code session loads.
 """
 
+import glob
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -155,6 +158,33 @@ def _category_code(raw: object) -> str:
     return ""
 
 
+CLAUDE_PATH_ENV = "ADOBE_CLAUDE_PATH"
+# Apps started from Finder or the Start menu do not get the shell's PATH, so look where Claude Code
+# usually installs itself.
+_CLAUDE_DIR_PATTERNS = (
+    "~/.local/bin",
+    "~/.claude/local",
+    "~/.npm-global/bin",
+    "~/.bun/bin",
+    "~/.nvm/versions/node/*/bin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/AppData/Roaming/npm",
+    "~/AppData/Local/Programs/claude",
+)
+
+
+def find_claude() -> str | None:
+    """Full path of the `claude` executable: ADOBE_CLAUDE_PATH, then PATH plus common install dirs."""
+    configured = os.environ.get(CLAUDE_PATH_ENV, "").strip()
+    if configured:
+        return configured if Path(configured).exists() else None
+    extra = [
+        match for pattern in _CLAUDE_DIR_PATTERNS for match in glob.glob(str(Path(pattern).expanduser()))
+    ]
+    return shutil.which("claude", path=os.pathsep.join([os.environ.get("PATH", ""), *extra]))
+
+
 def build_command(preview_dir: Path, names: list[str], model: str) -> list[str]:
     prompt = (
         "Describe each of these images (files in the current directory):\n"
@@ -162,7 +192,7 @@ def build_command(preview_dir: Path, names: list[str], model: str) -> list[str]:
         + "\nReturn one item per image; 'file' must be the exact file name listed."
     )
     return [
-        "claude",
+        find_claude() or "claude",
         "-p",
         prompt,
         "--model",
@@ -196,6 +226,10 @@ def run_claude(command: list[str], cwd: Path) -> str:
             stdin=subprocess.DEVNULL,
             timeout=CALL_TIMEOUT_SECONDS,
         )
+    except FileNotFoundError as error:
+        raise ClaudeCallError(
+            f"Claude Code (`claude`) was not found. Install it and log in, or set {CLAUDE_PATH_ENV}."
+        ) from error
     except (subprocess.TimeoutExpired, OSError) as error:
         raise ClaudeCallError(f"claude did not run: {error}") from error
     if completed.returncode != 0:

@@ -167,7 +167,7 @@ def test_pick_batch_enter_chooses_last_and_number_chooses_that_batch():
 
 
 def test_upload_without_batch_and_without_terminal_takes_last_batch_only(tmp_path, monkeypatch):
-    from adobe_stock import cli
+    from adobe_stock import services
 
     db = tmp_path / "s.db"
     folder = make_folder(tmp_path, "f1", [f"{i}.jpg" for i in range(4)])
@@ -175,13 +175,13 @@ def test_upload_without_batch_and_without_terminal_takes_last_batch_only(tmp_pat
 
     uploaded: list[str] = []
 
-    def fake_upload(_config, files, on_success):
+    def fake_upload(_config, files, on_success, **_options):
         for path, remote in files:
             uploaded.append(remote)
             on_success(path)
         return []
 
-    monkeypatch.setattr(cli, "upload_files", fake_upload)
+    monkeypatch.setattr(services, "upload_files", fake_upload)
 
     run(db, "upload")  # pytest has no TTY, so the last pending batch is used
     assert sorted(uploaded) == ["2.jpg", "3.jpg"]
@@ -276,11 +276,11 @@ def test_upload_logs_each_file_and_the_summary(tmp_path, monkeypatch):
     db = tmp_path / "s.db"
     main(["--db", str(db), "scan", str(make_folder(tmp_path, "f1", ["a.jpg", "b.jpg"]))])
 
-    def fake_upload(settings, files, on_success):
+    def fake_upload(settings, files, on_success, **_options):
         on_success(files[0][0])
         return [files[1][1]]  # second one fails
 
-    monkeypatch.setattr("adobe_stock.cli.upload_files", fake_upload)
+    monkeypatch.setattr("adobe_stock.services.upload_files", fake_upload)
     monkeypatch.setattr("adobe_stock.cli.load_settings", lambda: None)
     assert main(["--db", str(db), "upload", "--batch", "1"]) == 1
 
@@ -297,10 +297,10 @@ def test_unreachable_host_is_reported_not_a_traceback_and_files_stay_pending(tmp
     db = tmp_path / "s.db"
     main(["--db", str(db), "scan", str(make_folder(tmp_path, "f1", ["a.jpg"]))])
 
-    def no_dns(settings, files, on_success):
+    def no_dns(settings, files, on_success, **_options):
         raise socket.gaierror(8, "nodename nor servname provided, or not known")
 
-    monkeypatch.setattr("adobe_stock.cli.upload_files", no_dns)
+    monkeypatch.setattr("adobe_stock.services.upload_files", no_dns)
     monkeypatch.setattr("adobe_stock.cli.load_settings", lambda: None)
     assert main(["--db", str(db), "upload", "--batch", "1"]) == 1
 
