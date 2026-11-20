@@ -9,9 +9,35 @@ on:
 permissions:
   contents: read
 
+# A newer push makes an older, still running check of the same branch pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # basedpyright reads its interpreter from .venv (see pyproject.toml), so install there.
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
+      - name: ruff check
+        run: .venv/bin/ruff check
+      - name: ruff format
+        run: .venv/bin/ruff format --check
+      - name: basedpyright
+        run: .venv/bin/basedpyright
+
   test:
     name: Tests (${{ matrix.os }})
+    needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -29,8 +55,10 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
+  # Builds run only when lint and the tests of every OS passed.
   build:
     name: Build (${{ matrix.os }})
+    needs: [lint, test]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
