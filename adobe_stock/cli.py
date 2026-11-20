@@ -8,10 +8,11 @@ import argparse
 import os
 import sys
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from adobe_stock import backup, state
+from adobe_stock import backup, caption, state
 from adobe_stock.metadata_csv import MAX_ROWS, Item, check_items, read_source, write_adobe_csv
 from adobe_stock.sftp_upload import SftpConfig, upload_files
 from adobe_stock.validate import validate_image
@@ -23,7 +24,11 @@ DEFAULT_CSV_DIR = Path("csv")
 CSV_DIR_ENV = "ADOBE_CSV_DIR"
 DEFAULT_BATCH_SIZE = 1000
 MAX_INVALID_SHOWN = 30
-MUTATING_COMMANDS = frozenset({"scan", "upload", "csv", "submitted"})
+MUTATING_COMMANDS = frozenset({"scan", "caption", "upload", "csv", "submitted"})
+DEFAULT_CAPTION_LIMIT = 50
+DEFAULT_IMAGES_PER_CALL = 5
+MAX_CONSECUTIVE_CALL_FAILURES = 2
+MAX_ERRORS_SHOWN = 20
 
 
 def find_images(root: Path) -> list[Path]:
@@ -73,14 +78,88 @@ def cmd_scan(args: argparse.Namespace) -> int:
     conn = state.open_db(args.db)
     result = state.scan_folder(conn, root, images, metadata, check_image, args.batch_size)
     print(
-        f"added {result.added}, unchanged {result.unchanged}, invalid {result.invalid}, "
+        f"added {result.added}, need metadata {result.needs_metadata}, "
+        f"unchanged {result.unchanged}, invalid {result.invalid}, "
         f"new batches {result.batches_created}"
     )
+    if result.needs_metadata:
+        print("Files without a metadata row are waiting: run `caption` to generate them.")
     for row in state.invalid_files(conn, root)[:MAX_INVALID_SHOWN]:
         print(f"INVALID {row['path']}: {row['error']}")
     for name in result.changed_after_upload:
         print(f"WARNING {name} changed after upload; not re-uploaded")
     return 0
+
+
+def pick_model(ask: Callable[[str], str] = input) -> str:
+    """Show the available models; Enter picks the default, a number or an id picks that one."""
+    print("Models:")
+    for number, (model_id, note) in enumerate(caption.MODELS, start=1):
+        marker = "  (default)" if model_id == caption.DEFAULT_MODEL else ""
+        print(f"  {number}: {model_id} - {note}{marker}")
+    answer = ask(f"Model [{caption.DEFAULT_MODEL}]: ").strip()
+    if not answer:
+        return caption.DEFAULT_MODEL
+    if answer.isdigit() and 1 <= int(answer) <= len(caption.MODELS):
+        return caption.MODEL_IDS[int(answer) - 1]
+    if answer in caption.MODEL_IDS:
+        return answer
+    raise SystemExit(f"'{answer}' is not a known model; choose 1-{len(caption.MODELS)}")
+
+
+def cmd_caption(args: argparse.Namespace) -> int:
+    """Generate titles and keywords for files that have none, then batch them."""
+    model = args.model or (pick_model() if sys.stdin.isatty() else caption.DEFAULT_MODEL)
+    conn = state.open_db(args.db)
+    todo = state.files_needing_metadata(conn, args.limit)
+    if not todo:
+        print("nothing to caption")
+        return 0
+    groups = [todo[i : i + args.per_call] for i in range(0, len(todo), args.per_call)]
+    captioned = 0
+    errors: list[str] = []
+    failed_calls = 0
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for start in range(0, len(groups), args.workers):
+            window = groups[start : start + args.workers]
+            futures = [pool.submit(caption.caption_group, group, model) for group in window]
+            for group, future in zip(window, futures):
+                try:
+                    results = future.result()
+                except caption.ClaudeCallError as error:
+                    failed_calls += 1
+                    errors.append(str(error))
+                    continue
+                failed_calls = 0
+                captioned += _store_results(conn, results, errors)
+            if failed_calls >= MAX_CONSECUTIVE_CALL_FAILURES:
+                errors.append("stopping: repeated call failures (usage limit or login problem?)")
+                break
+
+    batches = state.assign_batches(conn, args.batch_size)
+    print(f"captioned {captioned} of {len(todo)}, new batches {batches}")
+    for message in errors[:MAX_ERRORS_SHOWN]:
+        print(f"ERROR {message}")
+    return 1 if errors else 0
+
+
+def _store_results(conn, results: list, errors: list[str]) -> int:
+    stored = 0
+    for result in results:
+        if result.error:
+            state.record_error(conn, result.path, result.error)
+            errors.append(f"{result.path.name}: {result.error}")
+            continue
+        item = Item(result.path.name, result.title, result.keywords)
+        problems = check_items([item], {item.filename})
+        if problems:
+            state.record_error(conn, result.path, "; ".join(problems))
+            errors.append(f"{result.path.name}: {'; '.join(problems)}")
+            continue
+        state.set_metadata(conn, result.path, result.title, result.keywords)
+        stored += 1
+    return stored
 
 
 def pick_batch(batches: list, ask: Callable[[str], str] = input) -> int:
@@ -162,7 +241,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if row["batch_id"] != current_batch:
             current_batch = row["batch_id"]
             if current_batch is None:
-                print("no batch (invalid files)")
+                print("no batch (invalid or waiting for metadata)")
             else:
                 csv_path = row["csv_path"] or "-"
                 print(f"batch {current_batch}: {row['folder']} part {row['part']}, csv: {csv_path}")
@@ -197,6 +276,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"files per batch, 1-{MAX_ROWS} (default {DEFAULT_BATCH_SIZE})",
     )
     scan.set_defaults(func=cmd_scan)
+
+    caption_cmd = sub.add_parser(
+        "caption", help="generate title and keywords with Claude for files waiting for metadata"
+    )
+    caption_cmd.add_argument("--limit", type=int, default=DEFAULT_CAPTION_LIMIT, help="max files per run")
+    caption_cmd.add_argument(
+        "--model", choices=caption.MODEL_IDS,
+        help=f"model id; without it you choose from a list (default {caption.DEFAULT_MODEL})",
+    )
+    caption_cmd.add_argument(
+        "--per-call", type=int, default=DEFAULT_IMAGES_PER_CALL, help="images sent in one Claude call"
+    )
+    caption_cmd.add_argument("--workers", type=int, default=1, help="parallel Claude calls")
+    caption_cmd.add_argument("--batch-size", type=_batch_size, default=DEFAULT_BATCH_SIZE)
+    caption_cmd.set_defaults(func=cmd_caption)
 
     upload = sub.add_parser("upload", help="SFTP-upload pending files")
     upload.add_argument("--batch", type=int, help="batch id; without it you choose from a list (default: the last pending batch)")

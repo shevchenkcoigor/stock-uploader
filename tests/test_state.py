@@ -109,13 +109,16 @@ def test_invalid_file_is_reevaluated_after_metadata_appears(tmp_path):
     assert len(state.pending_files(conn)) == 1
 
 
-def test_missing_metadata_row_makes_file_invalid(tmp_path):
+def test_file_without_metadata_row_waits_for_caption(tmp_path):
     db = tmp_path / "s.db"
     folder = make_folder(tmp_path, "f1", ["a.jpg", "b.jpg"])
     (folder / "metadata.csv").write_text("filename,title,keywords\na.jpg,T,k\n", encoding="utf-8")
     run(db, "scan", str(folder))
     conn = state.open_db(db)
-    assert conn.execute("SELECT filename FROM files WHERE status='invalid'").fetchone()[0] == "b.jpg"
+    waiting = conn.execute("SELECT filename, batch_id FROM files WHERE status='needs_metadata'").fetchone()
+    assert waiting["filename"] == "b.jpg"
+    assert waiting["batch_id"] is None  # not batched until it has metadata
+    assert [p.name for p, _ in state.pending_files(conn)] == ["a.jpg"]
 
 
 def test_lifecycle_upload_csv_submit(tmp_path):

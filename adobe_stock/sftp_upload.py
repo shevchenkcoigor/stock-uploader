@@ -46,6 +46,8 @@ def upload_files(
     try:
         transport.connect(username=config.username, password=config.password)
         client = paramiko.SFTPClient.from_transport(transport)
+        if client is None:
+            raise RuntimeError("could not open an SFTP session on the connection")
         for path, remote_name in files:
             try:
                 client.put(str(path), remote_name)

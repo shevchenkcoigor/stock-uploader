@@ -22,6 +22,7 @@ PENDING = "pending"
 INVALID = "invalid"
 UPLOADED = "uploaded"
 SUBMITTED = "submitted"
+NEEDS_METADATA = "needs_metadata"  # valid image, waiting for a title and keywords
 
 HASH_SUFFIX_CHARS = 8
 HASH_CHUNK_BYTES = 1024 * 1024
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS files (
     sha256 TEXT NOT NULL,
     size INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL DEFAULT 0,
+    root TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     keywords TEXT NOT NULL DEFAULT '[]',
     category TEXT NOT NULL DEFAULT '',
@@ -61,6 +63,7 @@ class ScanResult:
     added: int
     unchanged: int
     invalid: int
+    needs_metadata: int
     changed_after_upload: tuple[str, ...]
     batches_created: int
 
@@ -73,7 +76,21 @@ def open_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _add_missing_columns(conn)
     return conn
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """Upgrade databases created before a column existed."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(files)")}
+    additions = {
+        "mtime_ns": "INTEGER NOT NULL DEFAULT 0",
+        "root": "TEXT NOT NULL DEFAULT ''",
+    }
+    with conn:
+        for name, ddl in additions.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE files ADD COLUMN {name} {ddl}")
 
 
 def sha256_of(path: Path) -> str:
@@ -97,45 +114,55 @@ def scan_folder(
     check_image is called only for files that are new or changed, so a rescan of a big
     tree stays cheap: known files are recognised by size + mtime without hashing.
     """
-    added = unchanged = invalid = 0
+    added = unchanged = invalid = needs_metadata = 0
     changed_after_upload: list[str] = []
-    new_valid: list[tuple[Path, Item]] = []
 
     with conn:
         for image in images:
             stat = image.stat()
             row = conn.execute("SELECT * FROM files WHERE path = ?", (str(image),)).fetchone()
-            known = row is not None and row["status"] != INVALID
-            if known and row["size"] == stat.st_size and row["mtime_ns"] == stat.st_mtime_ns:
+            known = row if row is not None and row["status"] != INVALID else None
+            if known is not None and known["status"] == NEEDS_METADATA and image in metadata:
+                known = None  # a metadata row appeared since the last scan
+            if (
+                known is not None
+                and known["size"] == stat.st_size
+                and known["mtime_ns"] == stat.st_mtime_ns
+            ):
                 unchanged += 1
                 continue
             digest = sha256_of(image)
-            if known and row["sha256"] == digest:
-                conn.execute("UPDATE files SET mtime_ns = ? WHERE id = ?", (stat.st_mtime_ns, row["id"]))
+            if known is not None and known["sha256"] == digest:
+                conn.execute(
+                    "UPDATE files SET mtime_ns = ? WHERE id = ?", (stat.st_mtime_ns, known["id"])
+                )
                 unchanged += 1
                 continue
-            if known and row["status"] in (UPLOADED, SUBMITTED):
+            if known is not None and known["status"] in (UPLOADED, SUBMITTED):
                 changed_after_upload.append(image.name)
                 continue
 
-            problems = _problems(conn, image, digest, metadata, check_image)
+            problems = _problems(conn, image, digest, check_image)
             if problems:
-                _upsert(conn, image, image.name, digest, stat, None, INVALID, "; ".join(problems))
+                _upsert(conn, image, image.name, digest, stat, None, INVALID, "; ".join(problems), root)
                 invalid += 1
                 continue
             remote_name = _remote_name(conn, image, digest)
-            item = replace(metadata[image], filename=remote_name)
-            _upsert(conn, image, remote_name, digest, stat, item, PENDING, None)
-            new_valid.append((image, item))
-            added += 1
-        batches_created = _assign_batches(conn, root, new_valid, batch_size)
-    return ScanResult(added, unchanged, invalid, tuple(changed_after_upload), batches_created)
+            if image in metadata:
+                item = replace(metadata[image], filename=remote_name)
+                _upsert(conn, image, remote_name, digest, stat, item, PENDING, None, root)
+                added += 1
+            else:
+                _upsert(conn, image, remote_name, digest, stat, None, NEEDS_METADATA, None, root)
+                needs_metadata += 1
+        batches_created = batch_unassigned(conn, batch_size)
+    return ScanResult(
+        added, unchanged, invalid, needs_metadata, tuple(changed_after_upload), batches_created
+    )
 
 
-def _problems(conn, image: Path, digest: str, metadata, check_image) -> list[str]:
+def _problems(conn, image: Path, digest: str, check_image) -> list[str]:
     problems = list(check_image(image))
-    if image not in metadata:
-        problems.append("no metadata row")
     duplicate = conn.execute(
         "SELECT path FROM files WHERE sha256 = ? AND path != ? AND status != ?",
         (digest, str(image), INVALID),
@@ -156,24 +183,74 @@ def _remote_name(conn, image: Path, digest: str) -> str:
 
 
 def _upsert(conn, image: Path, filename: str, digest: str, stat, item: Item | None,
-            status: str, error: str | None) -> None:
+            status: str, error: str | None, root: Path) -> None:
     conn.execute(
         """
-        INSERT INTO files (path, filename, sha256, size, mtime_ns, title, keywords, category,
+        INSERT INTO files (path, filename, sha256, size, mtime_ns, root, title, keywords, category,
                            status, error, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
             filename=excluded.filename, sha256=excluded.sha256, size=excluded.size,
-            mtime_ns=excluded.mtime_ns, title=excluded.title, keywords=excluded.keywords,
+            mtime_ns=excluded.mtime_ns, root=excluded.root, title=excluded.title,
+            keywords=excluded.keywords,
             category=excluded.category, status=excluded.status, error=excluded.error,
             batch_id=NULL, updated_at=excluded.updated_at
         """,
         (
-            str(image), filename, digest, stat.st_size, stat.st_mtime_ns,
+            str(image), filename, digest, stat.st_size, stat.st_mtime_ns, str(root),
             item.title if item else "", json.dumps(list(item.keywords)) if item else "[]",
             item.category if item else "", status, error, _now(),
         ),
     )
+
+
+def _item_from_row(row: sqlite3.Row) -> Item:
+    return Item(row["filename"], row["title"], tuple(json.loads(row["keywords"])), row["category"])
+
+
+def batch_unassigned(conn: sqlite3.Connection, batch_size: int | None = None) -> int:
+    """Put pending files that have no batch yet into new batches, grouped by scan root.
+
+    The caller owns the transaction. Returns the number of batches created.
+    """
+    rows = conn.execute(
+        "SELECT * FROM files WHERE status = ? AND batch_id IS NULL ORDER BY id", (PENDING,)
+    ).fetchall()
+    by_root: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_root.setdefault(row["root"], []).append(row)
+    created = 0
+    for root, group in by_root.items():
+        entries = [(Path(row["path"]), _item_from_row(row)) for row in group]
+        created += _assign_batches(conn, Path(root), entries, batch_size)
+    return created
+
+
+def assign_batches(conn: sqlite3.Connection, batch_size: int | None = None) -> int:
+    with conn:
+        return batch_unassigned(conn, batch_size)
+
+
+def files_needing_metadata(conn: sqlite3.Connection, limit: int) -> list[Path]:
+    rows = conn.execute(
+        "SELECT path FROM files WHERE status = ? ORDER BY id LIMIT ?", (NEEDS_METADATA, limit)
+    )
+    return [Path(row["path"]) for row in rows]
+
+
+def set_metadata(conn: sqlite3.Connection, path: Path, title: str, keywords: tuple[str, ...]) -> None:
+    """Attach generated metadata; the file becomes pending and ready to be batched."""
+    with conn:
+        conn.execute(
+            "UPDATE files SET title = ?, keywords = ?, status = ?, error = NULL, updated_at = ? "
+            "WHERE path = ? AND status = ?",
+            (title, json.dumps(list(keywords)), PENDING, _now(), str(path), NEEDS_METADATA),
+        )
+
+
+def record_error(conn: sqlite3.Connection, path: Path, error: str) -> None:
+    with conn:
+        conn.execute("UPDATE files SET error = ?, updated_at = ? WHERE path = ?", (error, _now(), str(path)))
 
 
 def _assign_batches(conn, root: Path, new_valid: list[tuple[Path, Item]],
