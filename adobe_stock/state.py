@@ -214,12 +214,17 @@ def pending_files(conn: sqlite3.Connection, batch_id: int | None = None) -> list
     return [(Path(r["path"]), r["filename"]) for r in conn.execute(query + " ORDER BY id", params)]
 
 
-def next_pending_batch(conn: sqlite3.Connection) -> int | None:
-    """Earliest batch that still has pending files, or None."""
-    row = conn.execute(
-        "SELECT MIN(batch_id) FROM files WHERE status = ? AND batch_id IS NOT NULL", (PENDING,)
-    ).fetchone()
-    return row[0]
+def pending_batches(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Batches that still have pending files, oldest first, with their pending counts."""
+    return conn.execute(
+        """
+        SELECT b.id AS batch_id, b.folder, b.part, COUNT(*) AS n
+        FROM files f JOIN batches b ON b.id = f.batch_id
+        WHERE f.status = ?
+        GROUP BY b.id ORDER BY b.id
+        """,
+        (PENDING,),
+    ).fetchall()
 
 
 def mark_uploaded(conn: sqlite3.Connection, path: Path) -> None:
@@ -239,6 +244,11 @@ def batch_items(conn: sqlite3.Connection, batch_id: int) -> list[Item]:
         Item(r["filename"], r["title"], tuple(json.loads(r["keywords"])), r["category"])
         for r in rows
     ]
+
+
+def recorded_csv_path(conn: sqlite3.Connection, batch_id: int) -> Path | None:
+    row = conn.execute("SELECT csv_path FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    return Path(row["csv_path"]) if row and row["csv_path"] else None
 
 
 def record_csv(conn: sqlite3.Connection, batch_id: int, csv_path: Path) -> None:

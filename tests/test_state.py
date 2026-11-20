@@ -136,7 +136,7 @@ def test_lifecycle_upload_csv_submit(tmp_path):
     assert state.batch_items(conn, 1) == []
 
 
-def test_csv_is_auto_named_in_csv_dir_and_never_overwritten(tmp_path):
+def test_csv_is_auto_named_in_csv_dir_and_rewritten_in_place(tmp_path):
     db = tmp_path / "s.db"
     run(db, "scan", str(make_folder(tmp_path, "f1", ["a.jpg"])))
     conn = state.open_db(db)
@@ -145,13 +145,25 @@ def test_csv_is_auto_named_in_csv_dir_and_never_overwritten(tmp_path):
 
     run(db, "csv", "1", "--csv-dir", str(csv_dir))
     run(db, "csv", "1", "--csv-dir", str(csv_dir))
-    names = sorted(p.name for p in csv_dir.iterdir())
-    assert len(names) == 2
+    names = [p.name for p in csv_dir.iterdir()]
+    assert len(names) == 1  # second run rewrote the same file
     assert names[0].startswith("metadata_") and names[0].endswith("_batch1.csv")
-    assert names[1].endswith("_batch1_2.csv")
 
 
-def test_upload_without_batch_takes_earliest_batch_only(tmp_path, monkeypatch):
+def test_pick_batch_enter_chooses_last_and_number_chooses_that_batch():
+    from adobe_stock.cli import pick_batch
+
+    rows = [
+        {"batch_id": 1, "folder": "/x", "part": 1, "n": 5},
+        {"batch_id": 2, "folder": "/x", "part": 2, "n": 3},
+    ]
+    assert pick_batch(rows, ask=lambda _prompt: "") == 2
+    assert pick_batch(rows, ask=lambda _prompt: "1") == 1
+    with pytest.raises(SystemExit):
+        pick_batch(rows, ask=lambda _prompt: "9")
+
+
+def test_upload_without_batch_and_without_terminal_takes_last_batch_only(tmp_path, monkeypatch):
     from adobe_stock import cli
 
     db = tmp_path / "s.db"
@@ -169,11 +181,36 @@ def test_upload_without_batch_takes_earliest_batch_only(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "upload_files", fake_upload)
     monkeypatch.setattr(cli.SftpConfig, "from_env", classmethod(lambda cls: None))
 
-    run(db, "upload")
-    assert sorted(uploaded) == ["0.jpg", "1.jpg"]
+    run(db, "upload")  # pytest has no TTY, so the last pending batch is used
+    assert sorted(uploaded) == ["2.jpg", "3.jpg"]
     run(db, "upload")
     assert sorted(uploaded) == ["0.jpg", "1.jpg", "2.jpg", "3.jpg"]
-    assert state.next_pending_batch(state.open_db(db)) is None
+    assert state.pending_batches(state.open_db(db)) == []
+
+
+def test_status_shows_csv_link_and_submitted_warns_without_csv(tmp_path, capsys):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_folder(tmp_path, "f1", ["a.jpg"])))
+    conn = state.open_db(db)
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])
+
+    run(db, "status")
+    assert "csv: -" in capsys.readouterr().out
+
+    run(db, "csv", "1", "--csv-dir", str(tmp_path / "csv_out"))
+    run(db, "status")
+    assert "_batch1.csv" in capsys.readouterr().out
+
+    run(db, "submitted", "1")
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_submitted_warns_when_batch_has_no_csv(tmp_path, capsys):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_folder(tmp_path, "f1", ["a.jpg"])))
+    state.mark_uploaded(state.open_db(db), state.pending_files(state.open_db(db))[0][0])
+    run(db, "submitted", "1")
+    assert "has no CSV" in capsys.readouterr().out
 
 
 def test_scan_batch_size_splits_folder(tmp_path):

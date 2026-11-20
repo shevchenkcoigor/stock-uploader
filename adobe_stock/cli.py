@@ -7,6 +7,7 @@ step stay manual in the Contributor Portal.
 import argparse
 import os
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -82,12 +83,31 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def pick_batch(batches: list, ask: Callable[[str], str] = input) -> int:
+    """Show batches with pending files and let the user choose; Enter picks the last one."""
+    default = batches[-1]["batch_id"]
+    print("Batches with pending files:")
+    for row in batches:
+        marker = "  (default)" if row["batch_id"] == default else ""
+        print(f"  {row['batch_id']}: {row['folder']} part {row['part']} - {row['n']} files{marker}")
+    answer = ask(f"Batch to upload [{default}]: ").strip()
+    if not answer:
+        return default
+    valid = {row["batch_id"] for row in batches}
+    if not answer.isdigit() or int(answer) not in valid:
+        raise SystemExit(f"'{answer}' is not one of: {', '.join(str(b) for b in sorted(valid))}")
+    return int(answer)
+
+
 def cmd_upload(args: argparse.Namespace) -> int:
     conn = state.open_db(args.db)
-    batch = args.batch if args.batch is not None else state.next_pending_batch(conn)
+    batch = args.batch
     if batch is None:
-        print("nothing pending")
-        return 0
+        batches = state.pending_batches(conn)
+        if not batches:
+            print("nothing pending")
+            return 0
+        batch = pick_batch(batches) if sys.stdin.isatty() else batches[-1]["batch_id"]
     files = state.pending_files(conn, batch)
     if not files:
         print(f"nothing pending in batch {batch}")
@@ -99,15 +119,9 @@ def cmd_upload(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def next_csv_path(csv_dir: Path, batch_id: int) -> Path:
-    """metadata_<date>_batch<N>.csv; if it exists, add _2, _3... so nothing is overwritten."""
-    stem = f"metadata_{date.today().isoformat()}_batch{batch_id}"
-    candidate = csv_dir / f"{stem}.csv"
-    counter = 2
-    while candidate.exists():
-        candidate = csv_dir / f"{stem}_{counter}.csv"
-        counter += 1
-    return candidate
+def new_csv_path(csv_dir: Path, batch_id: int) -> Path:
+    """metadata_<date>_batch<N>.csv; the date is when the batch's CSV was first made."""
+    return csv_dir / f"metadata_{date.today().isoformat()}_batch{batch_id}.csv"
 
 
 def cmd_csv(args: argparse.Namespace) -> int:
@@ -116,7 +130,12 @@ def cmd_csv(args: argparse.Namespace) -> int:
     if not items:
         print("no uploaded, unsubmitted files in this batch")
         return 1
-    output = args.output or next_csv_path(args.csv_dir, args.batch)
+    # A batch keeps one CSV: reuse (overwrite) the path recorded on its first run.
+    output = (
+        args.output
+        or state.recorded_csv_path(conn, args.batch)
+        or new_csv_path(args.csv_dir, args.batch)
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     write_adobe_csv(items, output)
     state.record_csv(conn, args.batch, output.resolve())
@@ -126,6 +145,11 @@ def cmd_csv(args: argparse.Namespace) -> int:
 
 def cmd_submitted(args: argparse.Namespace) -> int:
     conn = state.open_db(args.db)
+    csv_path = state.recorded_csv_path(conn, args.batch)
+    if csv_path is None:
+        print(f"WARNING batch {args.batch} has no CSV; metadata may not have been applied")
+    elif not csv_path.exists():
+        print(f"WARNING recorded CSV is missing on disk: {csv_path}")
     count = state.mark_batch_submitted(conn, args.batch)
     print(f"marked {count} files as submitted")
     return 0
@@ -133,8 +157,16 @@ def cmd_submitted(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     conn = state.open_db(args.db)
+    current_batch = object()
     for row in state.status_summary(conn):
-        print(f"batch {row['batch_id']} {row['folder']} part {row['part']}: {row['status']} x{row['n']}")
+        if row["batch_id"] != current_batch:
+            current_batch = row["batch_id"]
+            if current_batch is None:
+                print("no batch (invalid files)")
+            else:
+                csv_path = row["csv_path"] or "-"
+                print(f"batch {current_batch}: {row['folder']} part {row['part']}, csv: {csv_path}")
+        print(f"    {row['status']}: {row['n']}")
     return 0
 
 
@@ -167,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.set_defaults(func=cmd_scan)
 
     upload = sub.add_parser("upload", help="SFTP-upload pending files")
-    upload.add_argument("--batch", type=int, help="batch id (default: the earliest batch with pending files)")
+    upload.add_argument("--batch", type=int, help="batch id; without it you choose from a list (default: the last pending batch)")
     upload.set_defaults(func=cmd_upload)
 
     csv_cmd = sub.add_parser("csv", help="write the Adobe CSV for a batch")
