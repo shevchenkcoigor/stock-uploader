@@ -14,14 +14,18 @@
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+source .venv/bin/activate          # fish: source .venv/bin/activate.fish
+pip install -e ".[dev]"            # зависимости берутся из pyproject.toml
 ```
 
-Дальше команды запускаются так (ниже для краткости `adobe` означает эту строку):
+После установки доступна команда `adobe` (без активации окружения: `.venv/bin/adobe`):
 
 ```bash
-.venv/bin/python -m adobe_stock.cli <команда>
+adobe <команда>                    # то же, что python -m adobe_stock.cli <команда>
 ```
+
+Только для запуска, без инструментов разработки (pytest, basedpyright, ruff):
+`pip install -e .`
 
 Для `caption` нужен установленный и авторизованный Claude Code (`claude`), API-ключ не нужен.
 Для `upload` нужны переменные окружения (см. ниже).
@@ -53,7 +57,7 @@ scan  →  caption  →  upload  →  csv  →  [вручную в портал�
 | 6 | Submit | Отправка на проверку | портал, вручную |
 | 7 | `submitted N` | Помечает батч как отправленный | скрипт |
 
-Типичная сессия:
+Типичная сессия (с активированным окружением):
 
 ```bash
 adobe scan                 # images/ → новые файлы, батчи
@@ -267,8 +271,10 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 ## Проверка и тесты
 
 ```bash
-.venv/bin/python -m pytest -q      # тесты
-.venv/bin/basedpyright             # проверка типов
+pytest -q                          # тесты
+basedpyright                        # проверка типов
+ruff check                         # линтер (добавьте --fix для автоисправлений)
+ruff format                        # форматирование (длина строки 110)
 ```
 
 ## Что не проверено или не доделано

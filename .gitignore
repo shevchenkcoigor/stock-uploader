@@ -8,3 +8,5 @@ state_backups/
 *.db.replaced
 csv/
 images/
+*.egg-info/
+build/

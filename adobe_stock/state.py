@@ -13,7 +13,7 @@ import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from adobe_stock.metadata_csv import Item, split_into_batches
@@ -69,7 +69,7 @@ class ScanResult:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def open_db(path: Path) -> sqlite3.Connection:
@@ -124,18 +124,12 @@ def scan_folder(
             known = row if row is not None and row["status"] != INVALID else None
             if known is not None and known["status"] == NEEDS_METADATA and image in metadata:
                 known = None  # a metadata row appeared since the last scan
-            if (
-                known is not None
-                and known["size"] == stat.st_size
-                and known["mtime_ns"] == stat.st_mtime_ns
-            ):
+            if known is not None and known["size"] == stat.st_size and known["mtime_ns"] == stat.st_mtime_ns:
                 unchanged += 1
                 continue
             digest = sha256_of(image)
             if known is not None and known["sha256"] == digest:
-                conn.execute(
-                    "UPDATE files SET mtime_ns = ? WHERE id = ?", (stat.st_mtime_ns, known["id"])
-                )
+                conn.execute("UPDATE files SET mtime_ns = ? WHERE id = ?", (stat.st_mtime_ns, known["id"]))
                 unchanged += 1
                 continue
             if known is not None and known["status"] in (UPLOADED, SUBMITTED):
@@ -156,9 +150,7 @@ def scan_folder(
                 _upsert(conn, image, remote_name, digest, stat, None, NEEDS_METADATA, None, root)
                 needs_metadata += 1
         batches_created = batch_unassigned(conn, batch_size)
-    return ScanResult(
-        added, unchanged, invalid, needs_metadata, tuple(changed_after_upload), batches_created
-    )
+    return ScanResult(added, unchanged, invalid, needs_metadata, tuple(changed_after_upload), batches_created)
 
 
 def _problems(conn, image: Path, digest: str, check_image) -> list[str]:
@@ -182,8 +174,17 @@ def _remote_name(conn, image: Path, digest: str) -> str:
     return f"{image.stem}_{digest[:HASH_SUFFIX_CHARS]}{image.suffix}"
 
 
-def _upsert(conn, image: Path, filename: str, digest: str, stat, item: Item | None,
-            status: str, error: str | None, root: Path) -> None:
+def _upsert(
+    conn,
+    image: Path,
+    filename: str,
+    digest: str,
+    stat,
+    item: Item | None,
+    status: str,
+    error: str | None,
+    root: Path,
+) -> None:
     conn.execute(
         """
         INSERT INTO files (path, filename, sha256, size, mtime_ns, root, title, keywords, category,
@@ -197,9 +198,18 @@ def _upsert(conn, image: Path, filename: str, digest: str, stat, item: Item | No
             batch_id=NULL, updated_at=excluded.updated_at
         """,
         (
-            str(image), filename, digest, stat.st_size, stat.st_mtime_ns, str(root),
-            item.title if item else "", json.dumps(list(item.keywords)) if item else "[]",
-            item.category if item else "", status, error, _now(),
+            str(image),
+            filename,
+            digest,
+            stat.st_size,
+            stat.st_mtime_ns,
+            str(root),
+            item.title if item else "",
+            json.dumps(list(item.keywords)) if item else "[]",
+            item.category if item else "",
+            status,
+            error,
+            _now(),
         ),
     )
 
@@ -255,8 +265,7 @@ def record_error(conn: sqlite3.Connection, path: Path, error: str) -> None:
         conn.execute("UPDATE files SET error = ?, updated_at = ? WHERE path = ?", (error, _now(), str(path)))
 
 
-def _assign_batches(conn, root: Path, new_valid: list[tuple[Path, Item]],
-                    batch_size: int | None) -> int:
+def _assign_batches(conn, root: Path, new_valid: list[tuple[Path, Item]], batch_size: int | None) -> int:
     if not new_valid:
         return 0
     path_by_name = {item.filename: image for image, item in new_valid}
@@ -319,10 +328,7 @@ def batch_items(conn: sqlite3.Connection, batch_id: int) -> list[Item]:
     rows = conn.execute(
         "SELECT * FROM files WHERE batch_id = ? AND status = ? ORDER BY id", (batch_id, UPLOADED)
     )
-    return [
-        Item(r["filename"], r["title"], tuple(json.loads(r["keywords"])), r["category"])
-        for r in rows
-    ]
+    return [Item(r["filename"], r["title"], tuple(json.loads(r["keywords"])), r["category"]) for r in rows]
 
 
 def recorded_csv_path(conn: sqlite3.Connection, batch_id: int) -> Path | None:

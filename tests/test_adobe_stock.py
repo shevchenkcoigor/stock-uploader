@@ -6,10 +6,16 @@ from PIL import Image
 from pydantic import ValidationError
 
 from adobe_stock.metadata_csv import (
-    HEADERS, MAX_ROWS, Item, check_items, read_source, validate_csv_file, write_adobe_csv,
+    HEADERS,
+    MAX_ROWS,
+    Item,
+    check_items,
+    read_source,
+    validate_csv_file,
+    write_adobe_csv,
 )
-from adobe_stock.validate import validate_image
 from adobe_stock.settings import DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT, load_settings
+from adobe_stock.validate import validate_image
 
 
 def make_jpeg(path: Path, size=(2000, 2000)) -> Path:
@@ -52,7 +58,7 @@ def test_check_items_flags_missing_file_and_empty_title():
 
 def test_roundtrip_writes_adobe_headers(tmp_path):
     source = tmp_path / "src.csv"
-    source.write_text("filename,title,keywords\na.jpg,Cat,\"cat, pet\"\n", encoding="utf-8")
+    source.write_text('filename,title,keywords\na.jpg,Cat,"cat, pet"\n', encoding="utf-8")
     items = read_source(source)
     assert items[0].keywords == ("cat", "pet")
 

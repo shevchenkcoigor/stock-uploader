@@ -31,8 +31,17 @@ CALL_TIMEOUT_SECONDS = 300
 ERROR_TAIL_CHARS = 300
 # Labels Adobe adds itself through the AI flag; keeping them out of keywords.
 BANNED_KEYWORDS = frozenset(
-    {"ai", "ai generated", "ai-generated", "generative ai", "artificial intelligence",
-     "generated", "midjourney", "dall-e", "stable diffusion"}
+    {
+        "ai",
+        "ai generated",
+        "ai-generated",
+        "generative ai",
+        "artificial intelligence",
+        "generated",
+        "midjourney",
+        "dall-e",
+        "stable diffusion",
+    }
 )
 
 SYSTEM_PROMPT = (
@@ -124,17 +133,26 @@ def build_command(preview_dir: Path, names: list[str], model: str) -> list[str]:
         + "\nReturn one item per image; 'file' must be the exact file name listed."
     )
     return [
-        "claude", "-p", prompt,
-        "--model", model,
-        "--output-format", "json",
-        "--tools", "Read",
+        "claude",
+        "-p",
+        prompt,
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--tools",
+        "Read",
         "--strict-mcp-config",
         "--disable-slash-commands",
-        "--setting-sources", "",
+        "--setting-sources",
+        "",
         "--no-session-persistence",
-        "--system-prompt", SYSTEM_PROMPT,
-        "--add-dir", str(preview_dir),
-        "--json-schema", json.dumps(RESPONSE_SCHEMA),
+        "--system-prompt",
+        SYSTEM_PROMPT,
+        "--add-dir",
+        str(preview_dir),
+        "--json-schema",
+        json.dumps(RESPONSE_SCHEMA),
     ]
 
 
@@ -142,8 +160,12 @@ def run_claude(command: list[str], cwd: Path) -> str:
     """Run the CLI and return stdout; raise ClaudeCallError if the call as a whole failed."""
     try:
         completed = subprocess.run(
-            command, cwd=cwd, capture_output=True, text=True,
-            stdin=subprocess.DEVNULL, timeout=CALL_TIMEOUT_SECONDS,
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=CALL_TIMEOUT_SECONDS,
         )
     except (subprocess.TimeoutExpired, OSError) as error:
         raise ClaudeCallError(f"claude did not run: {error}") from error

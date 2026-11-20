@@ -21,9 +21,7 @@ def upload_files(
     transport = paramiko.Transport((settings.sftp_host, settings.sftp_port))
     failed: list[str] = []
     try:
-        transport.connect(
-            username=settings.sftp_user, password=settings.sftp_password.get_secret_value()
-        )
+        transport.connect(username=settings.sftp_user, password=settings.sftp_password.get_secret_value())
         client = paramiko.SFTPClient.from_transport(transport)
         if client is None:
             raise RuntimeError("could not open an SFTP session on the connection")

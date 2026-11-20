@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "adobe-stock-uploader"
 version = "0.1.0"
@@ -9,11 +13,18 @@ dependencies = [
     "pydantic-settings>=2.16",
 ]
 
+[project.scripts]
+adobe = "adobe_stock.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=9.2",
     "basedpyright>=1.40",
+    "ruff>=0.17",
 ]
+
+[tool.setuptools]
+packages = ["adobe_stock"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -26,3 +37,12 @@ venv = ".venv"
 # basedpyright defaults to "recommended", which is very strict; "standard" is the usual
 # starting point. Switch to "recommended" once the code is clean under it.
 typeCheckingMode = "standard"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+src = ["."]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, B bugbear, UP pyupgrade, SIM simplify, C4 comprehensions
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4"]

@@ -13,7 +13,7 @@ def make_folder(root: Path, name: str, files: list[str], shade: int = 0) -> Path
     folder.mkdir(parents=True)
     for index, file_name in enumerate(files):
         Image.new("RGB", (2000, 2000), ((index * 40 + shade) % 256, 0, 0)).save(folder / file_name, "JPEG")
-    rows = "".join(f"{f},Title {f},\"a, b\"\n" for f in files)
+    rows = "".join(f'{f},Title {f},"a, b"\n' for f in files)
     (folder / "metadata.csv").write_text("filename,title,keywords\n" + rows, encoding="utf-8")
     return folder
 
@@ -219,8 +219,10 @@ def test_scan_batch_size_splits_folder(tmp_path):
     db = tmp_path / "s.db"
     folder = make_folder(tmp_path, "f1", [f"{i}.jpg" for i in range(5)])
     run(db, "scan", str(folder), "--batch-size", "2")
-    sizes = [r[0] for r in state.open_db(db).execute(
-        "SELECT COUNT(*) FROM files GROUP BY batch_id ORDER BY batch_id")]
+    sizes = [
+        r[0]
+        for r in state.open_db(db).execute("SELECT COUNT(*) FROM files GROUP BY batch_id ORDER BY batch_id")
+    ]
     assert sizes == [2, 2, 1]
 
 

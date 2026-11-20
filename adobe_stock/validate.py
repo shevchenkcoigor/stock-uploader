@@ -42,9 +42,7 @@ def validate_image(path: Path) -> list[str]:
                 problems.append(f"content is {image.format}, not JPEG")
             megapixels = image.width * image.height / BYTES_PER_MEGAPIXEL
             if not MIN_MEGAPIXELS <= megapixels <= MAX_MEGAPIXELS:
-                problems.append(
-                    f"{megapixels:.1f} MP is outside {MIN_MEGAPIXELS}-{MAX_MEGAPIXELS} MP"
-                )
+                problems.append(f"{megapixels:.1f} MP is outside {MIN_MEGAPIXELS}-{MAX_MEGAPIXELS} MP")
             profile = _profile_name(image)
             # No embedded profile is treated as sRGB; a different profile is an error.
             if profile is not None and "srgb" not in profile.lower():

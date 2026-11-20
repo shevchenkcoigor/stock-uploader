@@ -2,7 +2,7 @@
 
 import shutil
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from adobe_stock.settings import load_settings
@@ -28,7 +28,7 @@ def list_backups(backup_dir: Path, stem: str) -> list[Path]:
 def create_backup(db_path: Path, backup_dir: Path, keep: int = DEFAULT_KEEP) -> Path:
     """Copy the live database with SQLite's online backup API, then prune old copies."""
     backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
     target = backup_dir / f"{db_path.stem}_{stamp}{BACKUP_SUFFIX}"
     source = sqlite3.connect(db_path)
     destination = sqlite3.connect(target)

@@ -68,7 +68,10 @@ def test_category_code_from_claude_is_kept_and_invalid_ones_are_dropped(tmp_path
         names = sorted(p.name for p in Path(cwd).glob("*.jpg"))
         categories = [7, 99, "food"]  # valid, outside Adobe's list, wrong type
         return envelope(
-            [{"file": n, "title": "T", "keywords": ["k"], "category": c} for n, c in zip(names, categories)]
+            [
+                {"file": n, "title": "T", "keywords": ["k"], "category": c}
+                for n, c in zip(names, categories, strict=True)
+            ]
         )
 
     monkeypatch.setattr(caption, "run_claude", with_categories)

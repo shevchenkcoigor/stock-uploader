@@ -47,7 +47,9 @@ def find_images(root: Path) -> list[Path]:
     )
 
 
-def load_metadata(images: list[Path], override: Path | None) -> tuple[dict[Path, Item], dict[Path, list[str]]]:
+def load_metadata(
+    images: list[Path], override: Path | None
+) -> tuple[dict[Path, Item], dict[Path, list[str]]]:
     """Match images to metadata rows by name, using the metadata.csv next to each image.
 
     --metadata overrides that with one CSV for the whole tree. Returns the rows found and
@@ -129,7 +131,7 @@ def cmd_caption(args: argparse.Namespace) -> int:
         for start in range(0, len(groups), args.workers):
             window = groups[start : start + args.workers]
             futures = [pool.submit(caption.caption_group, group, model) for group in window]
-            for group, future in zip(window, futures):
+            for future in futures:
                 try:
                     results = future.result()
                 except caption.ClaudeCallError as error:
@@ -197,9 +199,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
         print(f"nothing pending in batch {batch}")
         return 0
     print(f"uploading batch {batch}: {len(files)} files")
-    failed = upload_files(
-        load_settings(), files, on_success=lambda path: state.mark_uploaded(conn, path)
-    )
+    failed = upload_files(load_settings(), files, on_success=lambda path: state.mark_uploaded(conn, path))
     return 1 if failed else 0
 
 
@@ -275,7 +275,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = sub.add_parser("scan", help="register new images of a folder and split them into batches")
     scan.add_argument(
-        "folder", type=Path, nargs="?", default=DEFAULT_IMAGES_DIR,
+        "folder",
+        type=Path,
+        nargs="?",
+        default=DEFAULT_IMAGES_DIR,
         help=f"root folder with images in any nesting (default {DEFAULT_IMAGES_DIR})",
     )
     scan.add_argument(
@@ -294,7 +297,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     caption_cmd.add_argument("--limit", type=int, default=DEFAULT_CAPTION_LIMIT, help="max files per run")
     caption_cmd.add_argument(
-        "--model", choices=caption.MODEL_IDS,
+        "--model",
+        choices=caption.MODEL_IDS,
         help=f"model id; without it you choose from a list (default {caption.DEFAULT_MODEL})",
     )
     caption_cmd.add_argument(
@@ -305,13 +309,18 @@ def build_parser() -> argparse.ArgumentParser:
     caption_cmd.set_defaults(func=cmd_caption)
 
     upload = sub.add_parser("upload", help="SFTP-upload pending files")
-    upload.add_argument("--batch", type=int, help="batch id; without it you choose from a list (default: the last pending batch)")
+    upload.add_argument(
+        "--batch",
+        type=int,
+        help="batch id; without it you choose from a list (default: the last pending batch)",
+    )
     upload.set_defaults(func=cmd_upload)
 
     csv_cmd = sub.add_parser("csv", help="write the Adobe CSV for a batch")
     csv_cmd.add_argument("batch", type=int)
     csv_cmd.add_argument(
-        "--csv-dir", type=Path,
+        "--csv-dir",
+        type=Path,
         help="folder for generated CSVs (default: ADOBE_CSV_DIR from env/.env, else csv/)",
     )
     csv_cmd.add_argument("--output", type=Path, help="explicit file instead of an auto-named one")

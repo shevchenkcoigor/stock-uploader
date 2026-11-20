@@ -1,5 +1,0 @@
-pillow
-paramiko
-pydantic-settings
-pytest
-basedpyright
