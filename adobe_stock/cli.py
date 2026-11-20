@@ -12,7 +12,14 @@ from datetime import date
 from pathlib import Path
 
 from adobe_stock import backup, caption, state
-from adobe_stock.metadata_csv import MAX_ROWS, Item, check_items, read_source, write_adobe_csv
+from adobe_stock.metadata_csv import (
+    MAX_ROWS,
+    Item,
+    check_items,
+    read_source,
+    validate_csv_file,
+    write_adobe_csv,
+)
 from adobe_stock.settings import load_settings
 from adobe_stock.sftp_upload import upload_files
 from adobe_stock.validate import validate_image
@@ -215,8 +222,15 @@ def cmd_csv(args: argparse.Namespace) -> int:
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     write_adobe_csv(items, output)
+    problems = validate_csv_file(output, {item.filename for item in items})
+    if problems:
+        for problem in problems:
+            print(f"CSV PROBLEM {problem}")
+        return 1
     state.record_csv(conn, args.batch, output.resolve())
-    print(f"wrote {output} ({len(items)} rows). Portal: Uploaded Files > New > Upload CSV")
+    print(f"wrote {output} ({len(items)} rows, checked against Adobe's CSV rules)")
+    print("Portal: Uploaded Files > New > Upload CSV. The CSV has no AI column: mark the files as")
+    print("Generative AI in the portal when you upload them.")
     return 0
 
 

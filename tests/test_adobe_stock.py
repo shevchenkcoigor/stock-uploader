@@ -5,7 +5,9 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
-from adobe_stock.metadata_csv import HEADERS, Item, check_items, read_source, write_adobe_csv
+from adobe_stock.metadata_csv import (
+    HEADERS, MAX_ROWS, Item, check_items, read_source, validate_csv_file, write_adobe_csv,
+)
 from adobe_stock.validate import validate_image
 from adobe_stock.settings import DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT, load_settings
 
@@ -53,7 +55,6 @@ def test_roundtrip_writes_adobe_headers(tmp_path):
     source.write_text("filename,title,keywords\na.jpg,Cat,\"cat, pet\"\n", encoding="utf-8")
     items = read_source(source)
     assert items[0].keywords == ("cat", "pet")
-    assert items[0].ai_generated
 
     out = tmp_path / "out.csv"
     write_adobe_csv(items, out)
@@ -61,22 +62,44 @@ def test_roundtrip_writes_adobe_headers(tmp_path):
     assert tuple(rows[0]) == HEADERS
     assert rows[1][0] == "a.jpg"
     assert rows[1][2] == "cat, pet"
-    assert rows[1][4] == "Yes"
+    assert rows[1][4] == ""  # Releases column is left empty
 
 
-def test_explicit_non_ai_item_is_rejected(tmp_path):
-    source = tmp_path / "src.csv"
-    source.write_text("filename,title,keywords,ai_generated\na.jpg,Cat,cat,no\n", encoding="utf-8")
-    items = read_source(source)
-    assert any("AI-generated" in p for p in check_items(items, {"a.jpg"}))
-    with pytest.raises(ValueError):
-        write_adobe_csv(items, tmp_path / "out.csv")
+def test_category_must_be_numeric():
+    items = [Item("a.jpg", "t", ("k",), category="nature")]
+    assert any("numeric" in p for p in check_items(items, {"a.jpg"}))
+    assert check_items([Item("a.jpg", "t", ("k",), category="7")], {"a.jpg"}) == []
+
+
+def test_written_csv_has_exact_adobe_headers_and_passes_file_validation(tmp_path):
+    items = [Item("a.jpg", "Cat", ("cat", "pet"), "7"), Item("b.jpg", "Dog", ("dog",))]
+    out = tmp_path / "out.csv"
+    write_adobe_csv(items, out)
+    rows = list(csv.reader(out.open(encoding="utf-8")))
+    assert rows[0] == ["Filename", "Title", "Keywords", "Category", "Releases"]
+    assert rows[1] == ["a.jpg", "Cat", "cat, pet", "7", ""]
+    assert validate_csv_file(out, {"a.jpg", "b.jpg"}) == []
+
+
+def test_validate_csv_file_catches_bad_headers_columns_and_filenames(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text("Name,Title\na.jpg,T\n", encoding="utf-8")
+    problems = validate_csv_file(bad, {"a.jpg", "b.jpg"})
+    assert any("headers" in p for p in problems)
+    assert any("5 columns" in p for p in problems)
+    assert any("filenames differ" in p for p in problems)
+
+
+def test_validate_csv_file_rejects_non_utf8(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes("Filename\n\xe9".encode("latin-1"))
+    assert validate_csv_file(bad, set()) == ["file is not valid UTF-8"]
 
 
 def test_too_many_rows_is_reported():
-    items = [Item(f"{i}.jpg", "t", ("k",)) for i in range(5001)]
+    items = [Item(f"{i}.jpg", "t", ("k",)) for i in range(MAX_ROWS + 1)]
     problems = check_items(items, {item.filename for item in items})
-    assert any("limit is 5000" in p for p in problems)
+    assert any(f"limit is {MAX_ROWS}" in p for p in problems)
 
 
 def test_settings_defaults_and_missing_credentials():

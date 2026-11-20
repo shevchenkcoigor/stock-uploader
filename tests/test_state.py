@@ -227,7 +227,7 @@ def test_scan_batch_size_splits_folder(tmp_path):
 def test_batch_size_above_adobe_limit_is_rejected(tmp_path):
     folder = make_folder(tmp_path, "f1", ["a.jpg"])
     with pytest.raises(SystemExit):
-        run(tmp_path / "s.db", "scan", str(folder), "--batch-size", "5001")
+        run(tmp_path / "s.db", "scan", str(folder), "--batch-size", "20001")
 
 
 def test_large_set_splits_into_several_batches(monkeypatch):
