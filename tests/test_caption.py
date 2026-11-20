@@ -303,7 +303,7 @@ def test_title_that_is_only_ai_wording_is_reported(tmp_path, monkeypatch):
     assert result.error == "empty title or keywords"
 
 
-def test_csv_titles_start_with_the_label_and_the_stored_title_stays_clean(tmp_path, monkeypatch):
+def test_csv_titles_end_with_the_label_and_the_stored_title_stays_clean(tmp_path, monkeypatch):
     import csv as csv_module
 
     db = tmp_path / "s.db"
@@ -317,9 +317,9 @@ def test_csv_titles_start_with_the_label_and_the_stored_title_stays_clean(tmp_pa
     out = tmp_path / "out.csv"
     assert run(db, "csv", "1", "--output", str(out)) == 0
     title = next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"]
-    assert title.startswith("Generative AI A title")
+    assert title.startswith("A title") and title.endswith(" Generative AI")
     assert conn.execute("SELECT title FROM files").fetchone()["title"].startswith("A title")
 
     monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
     assert run(db, "csv", "1", "--output", str(out)) == 0
-    assert next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"].startswith("A title")
+    assert not next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"].endswith("AI")

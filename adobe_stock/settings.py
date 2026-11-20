@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     sftp_password: SecretStr = SecretStr("")
     backup_dir: Path | None = Field(default=None, description="default: <db name>_backups next to the DB")
     csv_dir: Path = DEFAULT_CSV_DIR
-    # Put at the start of every title in the CSV; set ADOBE_AI_TITLE_LABEL= (empty) to turn it off.
+    # Put at the end of every title in the CSV; set ADOBE_AI_TITLE_LABEL= (empty) to turn it off.
     ai_title_label: str = DEFAULT_AI_TITLE_LABEL
 
     @field_validator("sftp_host")

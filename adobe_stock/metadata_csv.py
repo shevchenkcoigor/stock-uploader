@@ -93,16 +93,16 @@ def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
 
 
 def with_ai_label(title: str, label: str) -> str:
-    """Start the title with `label` (e.g. "Generative AI"), keeping it within the title limit.
+    """End the title with `label` (e.g. "Generative AI"), keeping it within the title limit.
 
-    An empty label leaves the title alone; a title that already starts with the label is kept.
+    An empty label leaves the title alone; a title that already ends with the label is kept.
     """
     label = label.strip()
-    if not label or title.lower().startswith(label.lower()):
+    if not label or title.lower().endswith(label.lower()):
         return title
     room = MAX_TITLE_CHARS - len(label) - 1
     body = title if len(title) <= room else title[:room].rsplit(" ", 1)[0] or title[:room]
-    return f"{label} {body}"
+    return f"{body} {label}"
 
 
 def write_adobe_csv(items: list[Item], destination: Path) -> None:

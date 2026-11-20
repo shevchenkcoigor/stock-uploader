@@ -186,13 +186,13 @@ def test_check_items_rejects_ai_wording_in_title_and_keywords():
     assert not any("c.jpg" in p for p in problems)
 
 
-def test_with_ai_label_prefixes_trims_and_can_be_disabled():
-    assert with_ai_label("Red apple", "Generative AI") == "Generative AI Red apple"
-    assert with_ai_label("generative ai Red apple", "Generative AI") == "generative ai Red apple"
+def test_with_ai_label_suffixes_trims_and_can_be_disabled():
+    assert with_ai_label("Red apple", "Generative AI") == "Red apple Generative AI"
+    assert with_ai_label("Red apple generative ai", "Generative AI") == "Red apple generative ai"
     assert with_ai_label("Red apple", "") == "Red apple"
     long_title = "word " * 60
     labelled = with_ai_label(long_title.strip(), "Generative AI")
-    assert labelled.startswith("Generative AI word") and len(labelled) <= 200
+    assert labelled.endswith(" word Generative AI") and len(labelled) <= 200
 
 
 def test_settings_label_default_and_override(monkeypatch):
