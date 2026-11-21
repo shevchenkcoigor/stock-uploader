@@ -403,6 +403,31 @@ def bulk_edit(
     return changed
 
 
+MANUAL_REVIEW_REASON = "Отмечено на проверку вручную"
+
+
+def set_status(conn: sqlite3.Connection, filenames: list[str], status: str) -> int:
+    """Move files between the statuses of the Description page by hand; returns how many were moved.
+
+    Only files of those statuses move (submitted and invalid ones never do), and a file already in
+    `status` is not counted. Everything but "new" needs a title and keywords: a file without them stays
+    as it is. The text of a file moved back to "new" is kept, so it can be captioned again.
+    """
+    if status not in EDITABLE_STATUSES:
+        raise ValueError(f"not a status of the description page: {status}")
+    if not filenames:
+        return 0
+    marks = ",".join("?" * len(EDITABLE_STATUSES))
+    needs_text = "" if status == NEEDS_METADATA else " AND title != '' AND keywords != '[]'"
+    reason = MANUAL_REVIEW_REASON if status == REVIEW else None
+    with conn:
+        return conn.execute(
+            f"UPDATE files SET status = ?, error = ?, updated_at = ? WHERE status != ? "
+            f"AND status IN ({marks}) AND filename IN (SELECT value FROM json_each(?)){needs_text}",
+            (status, reason, _now(), status, *EDITABLE_STATUSES, json.dumps(filenames)),
+        ).rowcount
+
+
 def review_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT filename, path, title, error FROM files WHERE status = ? ORDER BY id", (REVIEW,)

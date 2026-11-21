@@ -855,6 +855,46 @@ def test_bulk_edit_adds_a_keyword_and_replaces_the_category_only_for_editable_fi
     assert stored("c.jpg") == (["tree", "new"], "7", "pending")
 
 
+def insert_file(conn, name, status, title="", keywords="[]", error=None):
+    conn.execute(
+        "INSERT INTO files (path, filename, sha256, size, status, updated_at, title, keywords, error) "
+        "VALUES (?, ?, ?, 1, ?, 'now', ?, ?, ?)",
+        (f"/x/{name}", name, name, status, title, keywords, error),
+    )
+
+
+def status_of(conn, name):
+    return conn.execute("SELECT status, error FROM files WHERE filename = ?", (name,)).fetchone()
+
+
+def test_set_status_moves_files_by_hand_and_needs_a_description_to_leave_new(tmp_path):
+    conn = state.open_db(tmp_path / "d.db")
+    insert_file(conn, "new_text.jpg", "needs_metadata", "Title", '["k"]')
+    insert_file(conn, "new_empty.jpg", "needs_metadata")
+    insert_file(conn, "described.jpg", "pending", "Title", '["k"]')
+    insert_file(conn, "flagged.jpg", "review", "Title", '["k"]', "Possible brand")
+    insert_file(conn, "sent.jpg", "submitted", "Title", '["k"]')
+    insert_file(conn, "bad.jpg", "invalid")
+    conn.commit()
+    names = ["new_text.jpg", "new_empty.jpg", "described.jpg", "flagged.jpg", "sent.jpg", "bad.jpg"]
+
+    assert state.set_status(conn, names, state.PENDING) == 2  # new_text and flagged; described already is
+    assert status_of(conn, "new_text.jpg")["status"] == "pending"
+    assert status_of(conn, "new_empty.jpg")["status"] == "needs_metadata"  # nothing to describe it with
+    assert status_of(conn, "flagged.jpg")["error"] is None  # the review reason goes away
+    assert status_of(conn, "sent.jpg")["status"] == "submitted"  # final ones are never moved
+    assert status_of(conn, "bad.jpg")["status"] == "invalid"
+
+    assert state.set_status(conn, ["described.jpg"], state.REVIEW) == 1
+    assert status_of(conn, "described.jpg")["error"]  # a reason to show in the card
+    assert state.set_status(conn, ["described.jpg", "new_empty.jpg"], state.NEEDS_METADATA) == 1
+    row = conn.execute("SELECT title, status FROM files WHERE filename = 'described.jpg'").fetchone()
+    assert (row["title"], row["status"]) == ("Title", "needs_metadata")  # the text stays for re-captioning
+
+    with pytest.raises(ValueError):
+        state.set_status(conn, ["new_text.jpg"], state.SUBMITTED)  # not a status of the description page
+
+
 def test_bulk_edit_stops_at_the_keyword_limit(tmp_path):
     conn = state.open_db(tmp_path / "d.db")
     full = json.dumps([f"k{n}" for n in range(49)])
@@ -898,6 +938,47 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     assert len(description.table.selectionModel().selectedRows()) == 5
     description._toggle_all()  # all are marked, so this clears
     assert bar.count_label.text() == "Выбрано 0" and not bar.isHidden()
+
+
+def describe_by_sql(prefs, names):
+    conn = state.open_db(prefs.db_path)
+    for name in names:
+        conn.execute(
+            "UPDATE files SET title = 'T', keywords = '[\"k\"]', status = 'pending' WHERE filename = ?",
+            (name,),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_status_is_changed_next_to_the_category_in_the_bulk_bar_and_the_card(app, window, prefs):
+    seed_files(prefs, ["a.jpg", "b.jpg", "c.jpg"])
+    describe_by_sql(prefs, ["a.jpg", "b.jpg"])  # c.jpg stays new, without a description
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    bar = description.bulk_bar
+    assert bar.status_box.itemText(0) == "Статус"
+
+    description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 2, 6), True)
+    bar.status_box.setCurrentIndex(bar.status_box.findData(state.REVIEW))
+    bar.apply_button.click()
+    app.processEvents()
+    conn = state.open_db(prefs.db_path)
+    statuses = {r["filename"]: r["status"] for r in conn.execute("SELECT filename, status FROM files")}
+    assert statuses == {"a.jpg": "review", "b.jpg": "review", "c.jpg": "needs_metadata"}
+    assert "2 из 3" in description.status.text()  # one was skipped: it has no description
+    assert bar.status_box.currentIndex() == 0  # like the category: reset after applying
+
+    description._choose("a.jpg")
+    box = description.status_box
+    assert box.currentData() == state.REVIEW
+    index = box.findData(state.PENDING)
+    box.setCurrentIndex(index)
+    box.activated.emit(index)
+    app.processEvents()
+    row = conn.execute("SELECT status FROM files WHERE filename = 'a.jpg'").fetchone()
+    assert row["status"] == "pending"
 
 
 def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):

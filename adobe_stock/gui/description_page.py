@@ -350,6 +350,12 @@ class DescriptionPage(TaskPage):
             self.category_box.addItem(name, str(code))
         self.category_box.currentIndexChanged.connect(lambda _index: self._autosave())
         column.addWidget(self.category_box)
+        column.addWidget(self._field_label("Статус"))
+        self.status_box = make_combo()
+        for key in state.EDITABLE_STATUSES:
+            self.status_box.addItem(view_of(key).label, key)
+        self.status_box.activated.connect(self._change_status)  # only the person's choice, not a reload
+        column.addWidget(self.status_box)
 
         self.approve_button = QPushButton("Одобрить файл")
         self.approve_button.clicked.connect(lambda: self._approve([self._selected]))
@@ -633,20 +639,47 @@ class DescriptionPage(TaskPage):
         self._marked = set() if self._marked >= everything else everything
         self._select_in_views()
 
-    def _bulk_apply(self, tag: str, category: object) -> None:
+    def _bulk_apply(self, tag: str, category: object, status: object) -> None:
         names = [row["filename"] for row in self._visible if row["filename"] in self._marked]
         code = None if category is None else str(category)
+        batch_size = self.ctx.prefs.batch_size
 
         def work(conn, progress, should_stop):
-            return state.bulk_edit(conn, names, tag, code)
+            edited = state.bulk_edit(conn, names, tag, code) if tag or code is not None else None
+            moved = services.set_status(conn, names, str(status), batch_size).count if status else None
+            return edited, moved
 
         try:
-            changed = self.ctx.job(work)(lambda *_: None, lambda: False)
+            result = self.ctx.job(work)(lambda *_: None, lambda: False)
+            edited, moved = cast(tuple[int | None, int | None], result)
         except Exception as error:  # a locked or damaged database
             self.write(f"ОШИБКА: не удалось изменить файлы: {error}")
             return
-        self.status.setText(f"Изменено файлов: {changed} из {len(names)}")
+        parts = []
+        if edited is not None:
+            parts.append(f"Изменено файлов: {edited} из {len(names)}")
+        if moved is not None:
+            parts.append(f"статус сменён: {moved} из {len(names)}")
+        self.status.setText(", ".join(parts))
         QTimer.singleShot(0, self.ctx.data_changed.emit)
+
+    def _change_status(self, index: int) -> None:
+        """The card's status list was used by the person: move the open file."""
+        status = self.status_box.itemData(index)
+        if not self._selected or status is None:
+            return
+        batch_size = self.ctx.prefs.batch_size
+        names = [self._selected]
+        try:
+            report = self.ctx.job(
+                lambda conn, progress, should_stop: services.set_status(conn, names, status, batch_size)
+            )(lambda *_: None, lambda: False)
+        except Exception as error:  # a locked or damaged database
+            self.write(f"ОШИБКА: не удалось сменить статус: {error}")
+            return
+        if isinstance(report, services.ApproveReport) and report.count == 0:
+            self.status.setText("Статус не сменён: сначала нужны заголовок и ключевые слова")
+        QTimer.singleShot(0, self.ctx.data_changed.emit)  # a refused change puts the old status back
 
     def _step(self, delta: int) -> None:
         names = [row["filename"] for row in self._visible]
@@ -673,7 +706,7 @@ class DescriptionPage(TaskPage):
         was_loading, self._loading = self._loading, True
         try:
             enabled = row is not None
-            for widget in (self.title_edit, self.keywords_edit, self.category_box):
+            for widget in (self.title_edit, self.keywords_edit, self.category_box, self.status_box):
                 widget.setEnabled(enabled)
             if row is None:
                 self._selected = ""
@@ -713,6 +746,7 @@ class DescriptionPage(TaskPage):
         stored_tags = tuple(json.loads(row["keywords"]))
         if self.keywords_edit.tags() != stored_tags:
             self.keywords_edit.set_tags(stored_tags)
+        self.status_box.setCurrentIndex(max(0, self.status_box.findData(row["status"])))
         category_index = max(0, self.category_box.findData(row["category"]))
         if self.category_box.currentIndex() != category_index:
             self.category_box.setCurrentIndex(category_index)

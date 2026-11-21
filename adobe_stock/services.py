@@ -277,6 +277,16 @@ def approve(conn: sqlite3.Connection, names: list[str] | None, batch_size: int) 
     return ApproveReport(count, new_batches)
 
 
+def set_status(conn: sqlite3.Connection, names: list[str], status: str, batch_size: int) -> ApproveReport:
+    """Move files to `status` by hand; files that become "described" are put into batches as usual."""
+    count = state.set_status(conn, names, status)
+    new_batches = state.assign_batches(conn, batch_size)
+    state.log_event(
+        conn, "status", f"{count} of {len(names)} files moved to {status}, new batches {new_batches}"
+    )
+    return ApproveReport(count, new_batches)
+
+
 # ------------------------------------------------------------------------- upload
 
 
