@@ -822,11 +822,11 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     window.nav.setCurrentRow(1)
     description = page(window, "Описание")
     description.refresh()
-    assert description.bulk_bar.isHidden()
+    assert not description.bulk_bar.isHidden() and description.bulk_bar.count_label.text() == "Выбрано 0"
     description.table.selectRow(0)
-    assert description.bulk_bar.isHidden()  # one file is edited in the side panel
+    assert not description.bulk_bar.apply_button.isEnabled()  # one file is edited in the side panel
     description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 2, 5), True)
-    assert not description.bulk_bar.isHidden()
+    assert description.bulk_bar.apply_button.isEnabled()
     assert description.bulk_bar.count_label.text() == "Выбрано 3"
 
     bar = description.bulk_bar
@@ -846,7 +846,7 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     assert bar.count_label.text() == "Выбрано 25"
     assert len(description.table.selectionModel().selectedRows()) == 5
     bar.clear_clicked.emit()
-    assert bar.isHidden()
+    assert bar.count_label.text() == "Выбрано 0" and not bar.isHidden()
 
 
 def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):
@@ -857,7 +857,7 @@ def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):
     first, second = description.table.item(0, 0), description.table.item(1, 0)
     assert first.flags() & Qt.ItemFlag.ItemIsUserCheckable
     first.setCheckState(Qt.CheckState.Checked)
-    assert description.bulk_bar.isHidden()  # one is not a bulk
+    assert not description.bulk_bar.apply_button.isEnabled()  # one is not a bulk
     second.setCheckState(Qt.CheckState.Checked)
     assert description.bulk_bar.count_label.text() == "Выбрано 2"
     app.processEvents()
@@ -866,7 +866,7 @@ def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):
     description._go_page(0)
     assert description.table.item(0, 0).checkState() == Qt.CheckState.Checked
     description.table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
-    assert description.bulk_bar.isHidden()
+    assert not description.bulk_bar.apply_button.isEnabled()
 
     description.tiles_button.click()  # the same marks on tiles
     assert description.tiles.item(0).checkState() == Qt.CheckState.Checked
