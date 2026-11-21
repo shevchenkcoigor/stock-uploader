@@ -29,6 +29,7 @@ build = [
 ]
 dev = [
     "pytest>=9.2",
+    "pytest-xdist>=3.6",
     "basedpyright>=1.40",
     "ruff>=0.17",
     "pre-commit>=4.0",
