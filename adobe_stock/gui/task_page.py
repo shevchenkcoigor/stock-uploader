@@ -61,7 +61,6 @@ class TaskPage(QWidget):
 
     def add_action(self, button: QPushButton) -> QPushButton:
         """Put a button that must be disabled while an operation runs before the cancel button."""
-        button.setProperty("primary", not self._locked)  # the first action of a page is its main one
         self.button_row.insertWidget(self.button_row.count() - 1, button)
         self._locked.append(button)
         return button

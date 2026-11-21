@@ -198,7 +198,6 @@ class ScanPage(TaskPage):
     def _build_problems_panel(self) -> QFrame:
         panel, column, head = panel_with_heading("Проблемные файлы")
         self.to_description = QPushButton("К описанию →")
-        self.to_description.setProperty("primary", True)
         head.addWidget(self.to_description)
         self.table = QTableWidget(0, len(PROBLEM_COLUMNS))
         self.table.setHorizontalHeaderLabels(list(PROBLEM_COLUMNS))

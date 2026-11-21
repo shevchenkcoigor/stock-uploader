@@ -345,7 +345,6 @@ class DescriptionPage(TaskPage):
         self.card_model = self._make_model_combo()
         caption_row.addWidget(self.card_model, 1)
         self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
-        self.card_caption_button.setProperty("primary", True)
         self.card_caption_button.setToolTip(caption_help())
         self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
         caption_row.addWidget(self.card_caption_button)

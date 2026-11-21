@@ -79,9 +79,7 @@ QPushButton[joint="first"] {{ border-top-right-radius: 0; border-bottom-right-ra
 QPushButton[joint="mid"] {{ border-radius: 0; }}
 QPushButton[joint="last"] {{ border-top-left-radius: 0; border-bottom-left-radius: 0; }}
 QPushButton[compact="true"] {{ min-width: 32px; }}
-QPushButton[segment="true"]:checked {{ background: {accent_soft}; border-color: {accent}; font-weight: 600; }}
 QPushButton[page="true"] {{ height: 28px; min-width: 28px; padding: 0 6px; }}
-QPushButton[page="true"]:checked {{ background: {accent_soft}; border-color: {accent}; font-weight: 600; }}
 QListWidget#tiles {{ background: {surface}; border: 0; }}
 QListWidget#tiles::item {{ border-radius: 4px; color: {ink}; }}
 QScrollArea#card-scroll, QWidget#card-body {{ background: transparent; }}
@@ -110,13 +108,19 @@ QListWidget#nav::item {{ height: 30px; padding: 0 12px; border-radius: 6px; colo
 QListWidget#nav::item:selected {{ background: {accent}; color: {accent_ink}; font-weight: 600; }}
 QListWidget#nav::item:hover:!selected {{ background: {surface_sunken}; }}
 
-QPushButton {{ height: 30px; padding: 0 12px; border: 1px solid {border_strong}; border-radius: 6px;
-    background: {surface}; color: {ink}; }}
-QPushButton:hover {{ background: {accent_soft}; }}
-QPushButton:disabled {{ color: {ink_muted}; border-color: {border}; }}
-QPushButton:focus {{ border: 2px solid {accent}; }}
-QPushButton[primary="true"] {{ background: {accent}; border-color: {accent}; color: {accent_ink}; font-weight: 600; }}
-QPushButton[primary="true"]:disabled {{ background: {accent_soft}; border-color: {accent_soft}; color: {ink_muted}; }}
+QPushButton {{ height: 30px; padding: 0 12px; border: 1px solid {accent}; border-radius: 6px;
+    background: {accent}; color: {accent_ink}; font-weight: 600; }}
+QPushButton:hover {{ border-color: {ink}; }}
+QPushButton:pressed {{ background: {accent_soft}; border-color: {accent_soft}; color: {ink}; }}
+QPushButton:focus {{ border: 2px solid {ink}; }}
+QPushButton:disabled {{ background: {accent_soft}; border-color: {accent_soft}; color: {ink_muted}; }}
+QPushButton[segment="true"], QPushButton[page="true"] {{ background: {surface}; border-color: {border_strong};
+    color: {ink}; font-weight: 400; }}
+QPushButton[segment="true"]:hover, QPushButton[page="true"]:hover {{ background: {accent_soft}; }}
+QPushButton[segment="true"]:disabled, QPushButton[page="true"]:disabled {{ background: {surface};
+    border-color: {border}; color: {ink_muted}; }}
+QPushButton[segment="true"]:checked, QPushButton[page="true"]:checked {{ background: {accent_soft};
+    border-color: {accent}; font-weight: 600; }}
 
 QLineEdit, QSpinBox, QComboBox, QPlainTextEdit, QTextEdit {{ height: 30px; padding: 0 8px; border: 1px solid {border_strong};
     border-radius: 4px; background: {surface}; color: {ink}; selection-background-color: {accent};
