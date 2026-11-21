@@ -875,11 +875,11 @@ def test_click_on_a_scan_row_opens_the_file(app, window, prefs, monkeypatch):
     conn.commit()
     scan_page = page(window, "Скан")
     scan_page.refresh()
-    scan_page.table.cellClicked.emit(0, 1)  # any cell of the row, not only the name
+    scan_page.table.cellDoubleClicked.emit(0, 1)  # any cell of the row, not only the name
     assert [Path(path).name for path in opened] == ["bad.jpg"]
 
 
-def test_description_opens_a_file_by_click_on_its_name_only(app, window, prefs, monkeypatch):
+def test_description_opens_a_file_by_double_click_on_its_name_only(app, window, prefs, monkeypatch):
     opened = []
     monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", opened.append)
     monkeypatch.setattr("adobe_stock.gui.description_page.open_file", opened.append)
@@ -887,9 +887,9 @@ def test_description_opens_a_file_by_click_on_its_name_only(app, window, prefs, 
     window.nav.setCurrentRow(1)
     description = page(window, "Описание")
     description.refresh()
-    description.table.cellClicked.emit(0, 1)  # the title cell is edited instead
+    description.table.cellDoubleClicked.emit(0, 1)  # the title cell is edited instead
     assert opened == []
-    description.table.cellClicked.emit(0, 0)
+    description.table.cellDoubleClicked.emit(0, 0)
     assert [Path(path).name for path in opened] == ["a.jpg"]
 
     description.tiles_button.click()
@@ -1924,18 +1924,18 @@ def test_click_on_an_upload_row_opens_its_picture(app, window, prefs, monkeypatc
     upload = page(window, "Загрузка")
     upload.show_queue([UploadRow("a.jpg", 100, "queued", 0.0, "/pics/a.jpg")])
 
-    upload.files.cellClicked.emit(0, 1)  # the size cell does nothing
-    upload.files.cellClicked.emit(0, 0)
+    upload.files.cellDoubleClicked.emit(0, 1)  # the size cell does nothing
+    upload.files.cellDoubleClicked.emit(0, 0)
 
     assert opened == ["/pics/a.jpg"]
 
 
-def test_click_on_a_csv_row_filename_opens_its_picture(app, window, prefs, monkeypatch):
+def test_double_click_on_a_csv_row_filename_opens_its_picture(app, window, prefs, monkeypatch):
     csv_page, _ = uploaded_csv_page(app, window, prefs)
     opened: list[str] = []
     monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", lambda path: opened.append(path) or True)
 
-    csv_page.table.cellClicked.emit(0, 1)  # the title is edited, not opened
-    csv_page.table.cellClicked.emit(0, 0)
+    csv_page.table.cellDoubleClicked.emit(0, 1)  # the title is edited, not opened
+    csv_page.table.cellDoubleClicked.emit(0, 0)
 
     assert len(opened) == 1 and opened[0].endswith(".jpg")
