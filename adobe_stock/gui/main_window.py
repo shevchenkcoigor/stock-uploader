@@ -23,6 +23,7 @@ from adobe_stock.gui.log_page import LogPage
 from adobe_stock.gui.prefs import APP_NAME
 from adobe_stock.gui.scan_page import LAST_SCAN_KEY, ScanPage, last_scan_text
 from adobe_stock.gui.settings_page import SettingsPage
+from adobe_stock.gui.status import view_of
 from adobe_stock.gui.upload_page import UploadPage
 
 SETTINGS_TITLE = "Настройки"
@@ -30,13 +31,14 @@ NAV_WIDTH = 180
 NAV_ITEM_HEIGHT = 30
 NAV_PADDING = 24
 
-STATUS_LABELS = (
-    (state.NEEDS_METADATA, "ждут подписи"),
-    (state.REVIEW, "на проверке"),
-    (state.PENDING, "к загрузке"),
-    (state.UPLOADED, "загружено"),
-    (state.SUBMITTED, "отправлено"),
-    (state.INVALID, "невалидных"),
+# the order of the summary line; the names are the ones the status chips show
+SUMMARY_ORDER = (
+    state.NEEDS_METADATA,
+    state.REVIEW,
+    state.PENDING,
+    state.UPLOADED,
+    state.SUBMITTED,
+    state.INVALID,
 )
 
 
@@ -142,7 +144,7 @@ class MainWindow(QMainWindow):
         totals: dict[str, int] = {}
         for row in rows:
             totals[row["status"]] = totals.get(row["status"], 0) + row["n"]
-        parts = [f"{label}: {totals[key]}" for key, label in STATUS_LABELS if totals.get(key)]
+        parts = [f"{view_of(key).label}: {totals[key]}" for key in SUMMARY_ORDER if totals.get(key)]
         self.summary.setText(" · ".join(parts) if parts else "База пуста: начните со скана")
         self.last_scan.setText(last_scan_text(self._saved_scan(), datetime.now()))
         current = self.stack.currentWidget()
