@@ -1,0 +1,70 @@
+from pathlib import Path
+
+from adobe_stock import csv_batches, services, state
+from adobe_stock.settings import Settings
+from tests.test_services import scanned
+
+
+def uploaded(tmp_path: Path, names: list[str]):
+    _, conn = scanned(tmp_path, names)
+    for path, _ in state.pending_files(conn):
+        state.mark_uploaded(conn, path)
+    return conn
+
+
+def settings(tmp_path: Path) -> Settings:
+    return Settings(csv_dir=tmp_path / "csv_out")
+
+
+def test_batch_without_csv_is_offered_but_not_listed(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg", "b.jpg"])
+
+    assert csv_batches.csv_entries(conn) == []
+    offered = csv_batches.batches_without_csv(conn)
+    assert [row["n"] for row in offered] == [2]
+
+
+def test_built_csv_is_listed_as_built_with_its_rows(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg", "b.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    services.build_csv(conn, batch, settings(tmp_path))
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert (entry.state, entry.rows, entry.bad_rows) == (csv_batches.BUILT, 2, 0)
+    assert entry.name.endswith(".csv")
+    assert csv_batches.batches_without_csv(conn) == []
+    assert sorted(r["filename"] for r in csv_batches.csv_rows(conn, batch)) == ["a.jpg", "b.jpg"]
+
+
+def test_row_without_title_makes_the_csv_an_error(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg", "b.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    services.build_csv(conn, batch, settings(tmp_path))
+    state.update_metadata(conn, "a.jpg", "", ("sea",), "")
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert (entry.state, entry.bad_rows) == (csv_batches.ERROR, 1)
+
+
+def test_missing_csv_file_is_an_error(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    report = services.build_csv(conn, batch, settings(tmp_path))
+    assert report.path is not None
+    report.path.unlink()
+
+    assert csv_batches.csv_entries(conn)[0].state == csv_batches.ERROR
+
+
+def test_submitted_batch_is_sent_and_keeps_its_rows(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    services.build_csv(conn, batch, settings(tmp_path))
+    services.mark_submitted(conn, batch)
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert (entry.state, entry.rows) == (csv_batches.SENT, 1)
+    assert [r["status"] for r in csv_batches.csv_rows(conn, batch)] == [state.SUBMITTED]

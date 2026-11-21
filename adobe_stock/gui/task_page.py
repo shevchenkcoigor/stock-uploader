@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +55,8 @@ class TaskPage(QWidget):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
         self.status = QLabel("")
+        self.status.setWordWrap(True)  # a long message wraps instead of widening the whole window
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.status)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)

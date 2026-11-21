@@ -16,6 +16,7 @@ from adobe_stock.gui.context import AppContext  # noqa: E402
 from adobe_stock.gui.main_window import MainWindow  # noqa: E402
 from adobe_stock.gui.prefs import MemoryStore, Preferences  # noqa: E402
 from tests.test_caption import make_policy_claude, make_unlabelled_folder  # noqa: E402
+from tests.test_state import make_folder  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -172,11 +173,13 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
         state.mark_uploaded(conn, path)
     csv_page = page(window, "CSV")
     csv_page.refresh()
-    csv_page._create()
+    assert csv_page.files.rowCount() == 0  # no CSV yet: «+ CSV» offers the uploaded batch
+    batch = conn.execute("SELECT id FROM batches").fetchone()["id"]
+    csv_page._build(batch)
     finish(app, csv_page)
-    text = csv_page.output.toPlainText()
-    assert "CSV:" in text and "all 2" not in text and "Created using generative AI tools" in text
+    assert "CSV собран: 1 строк" in csv_page.status.text()
     assert (tmp_path / "csv_out").exists() and list((tmp_path / "csv_out").glob("*.csv"))
+    assert csv_page.files.rowCount() == 1 and csv_page.table.rowCount() == 1
     assert "На SFTP: 2" in window.summary.text()
 
 
@@ -1598,3 +1601,100 @@ def test_a_failed_file_is_shown_as_an_error_and_can_be_retried(app, window, pref
     assert upload_page.files.rowCount() == 2  # the queue keeps the uploaded file and the failed one
     assert upload_page.retry_button.isEnabled()
     assert "есть ошибки" in upload_page.status.text()
+
+
+def uploaded_csv_page(app, window, prefs):
+    """A CSV page showing one built CSV of two uploaded files."""
+    conn = state.open_db(prefs.db_path)
+    folder = make_folder(Path(prefs.db_path).parent, "f1", ["a.jpg", "b.jpg"])
+    services.scan(conn, folder.resolve(), services.find_images(folder), None, 1000)
+    for path, _ in state.pending_files(conn):
+        state.mark_uploaded(conn, path)
+    state.update_metadata(conn, "a.jpg", "Sea", ("sea",), "")
+    state.update_metadata(conn, "b.jpg", "Sky", ("sky",), "")
+    batch = conn.execute("SELECT id FROM batches").fetchone()["id"]
+    conn.close()
+    csv_page = page(window, "CSV")
+    csv_page._build(batch)
+    finish(app, csv_page)
+    return csv_page, batch
+
+
+def test_csv_page_edit_is_saved_to_the_database_and_the_csv_file(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
+
+    csv_page.table.item(row, 1).setText("Blue sea")
+
+    conn = state.open_db(prefs.db_path)
+    assert conn.execute("SELECT title FROM files WHERE filename = 'a.jpg'").fetchone()["title"] == "Blue sea"
+    written = next(prefs.csv_dir.glob("*batch*.csv")).read_text(encoding="utf-8")
+    assert "a.jpg,Blue sea" in written
+    conn.close()
+
+
+def test_csv_page_row_without_title_turns_the_file_into_an_error(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
+
+    csv_page.table.item(row, 1).setText("")
+    csv_page.refresh()
+
+    assert "1 с ошибкой" in csv_page.subtitle.text()
+
+
+def test_csv_page_submitted_rows_cannot_be_edited(app, window, prefs):
+    csv_page, batch = uploaded_csv_page(app, window, prefs)
+    conn = state.open_db(prefs.db_path)
+    services.mark_submitted(conn, batch)
+    conn.close()
+
+    csv_page.refresh()
+
+    assert not csv_page.table.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable
+
+
+def test_csv_page_never_reads_the_keychain(app, window, prefs, monkeypatch):
+    monkeypatch.setattr(
+        prefs, "secrets", KeychainThatMustNotBeRead()
+    )  # reading it makes macOS ask for a password
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
+
+    csv_page.table.item(row, 1).setText("Blue sea")  # an edit rewrites the CSV
+
+    assert "Сохранено" in csv_page.status.text()
+
+
+def test_csv_page_add_is_disabled_with_a_hint_when_there_is_nothing_to_add(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)  # its only batch already has a CSV
+    csv_page.refresh()
+
+    assert not csv_page.add_button.isEnabled()
+    assert not csv_page.add_hint.isHidden() and "Нет картинок" in csv_page.add_hint.text()
+
+
+def test_csv_page_add_is_enabled_for_an_uploaded_batch_without_csv(app, window, prefs):
+    conn = state.open_db(prefs.db_path)
+    folder = make_folder(Path(prefs.db_path).parent, "f1", ["a.jpg"])
+    services.scan(conn, folder.resolve(), services.find_images(folder), None, 1000)
+    for path, _ in state.pending_files(conn):
+        state.mark_uploaded(conn, path)
+    conn.close()
+    csv_page = page(window, "CSV")
+
+    csv_page.refresh()
+
+    assert csv_page.add_button.isEnabled() and csv_page.add_hint.isHidden()
+
+
+def test_long_status_message_does_not_widen_the_window(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    window.show()
+    width = window.width()
+
+    csv_page.status.setText("очень длинное сообщение " * 40)
+    app.processEvents()
+
+    assert window.width() == width
+    assert csv_page.status.minimumSizeHint().width() < width
