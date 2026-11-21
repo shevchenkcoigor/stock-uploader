@@ -122,8 +122,13 @@ def scan_folder(
     metadata: dict[Path, Item],
     check_image: Callable[[Path], list[str]],
     batch_size: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ScanResult:
     """Register new files, skip known ones, and group new valid files into batches.
+
+    on_progress(done, total, path) is called before each file; should_stop() ends the scan early
+    (what was registered so far is kept).
 
     check_image is called only for files that are new or changed, so a rescan of a big
     tree stays cheap: known files are recognised by size + mtime without hashing.
@@ -132,7 +137,11 @@ def scan_folder(
     changed_after_upload: list[str] = []
 
     with conn:
-        for image in images:
+        for position, image in enumerate(images):
+            if should_stop is not None and should_stop():
+                break
+            if on_progress is not None:
+                on_progress(position, len(images), str(image))
             stat = image.stat()
             row = conn.execute("SELECT * FROM files WHERE path = ?", (str(image),)).fetchone()
             known = row if row is not None and row["status"] != INVALID else None
@@ -295,6 +304,59 @@ def set_metadata(
                 NEEDS_METADATA,
             ),
         )
+
+
+def all_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every file with what the description page shows (newest last)."""
+    return conn.execute(
+        "SELECT filename, path, size, title, keywords, category, status, error, updated_at "
+        "FROM files ORDER BY id"
+    ).fetchall()
+
+
+EDITABLE_STATUSES = (NEEDS_METADATA, PENDING, REVIEW)
+
+
+def files_to_describe(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Files a person may still describe: new, described or held for review, and in no batch.
+
+    A file in a batch is planned, being uploaded or already sent, so it is not described again.
+    """
+    marks = ",".join("?" * len(EDITABLE_STATUSES))
+    return conn.execute(
+        "SELECT filename, path, size, title, keywords, category, status, error, updated_at "
+        f"FROM files WHERE batch_id IS NULL AND status IN ({marks}) ORDER BY id",
+        EDITABLE_STATUSES,
+    ).fetchall()
+
+
+def update_metadata(
+    conn: sqlite3.Connection, filename: str, title: str, keywords: tuple[str, ...], category: str
+) -> bool:
+    """Save a person's edit. A file waiting for metadata becomes pending once it has a title and keywords.
+
+    Only files that may still be described: nothing in a batch, uploaded, sent or invalid.
+    """
+    marks = ",".join("?" * len(EDITABLE_STATUSES))
+    with conn:
+        changed = conn.execute(
+            "UPDATE files SET title = ?, keywords = ?, category = ?, updated_at = ?, "
+            "status = CASE WHEN status = ? AND ? != '' AND ? != '[]' THEN ? ELSE status END "
+            f"WHERE filename = ? AND batch_id IS NULL AND status IN ({marks})",
+            (
+                title,
+                json.dumps(list(keywords)),
+                category,
+                _now(),
+                NEEDS_METADATA,
+                title,
+                json.dumps(list(keywords)),
+                PENDING,
+                filename,
+                *EDITABLE_STATUSES,
+            ),
+        ).rowcount
+    return changed > 0
 
 
 def review_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:

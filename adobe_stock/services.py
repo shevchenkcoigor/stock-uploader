@@ -82,11 +82,12 @@ def protected(db: Path, mutating: bool = True) -> Iterator[None]:
 # ---------------------------------------------------------------------------- scan
 
 
-def find_images(root: Path) -> list[Path]:
-    """All JPEGs under root, at any depth; hidden files and folders (e.g. macOS ._x) are skipped."""
+def find_images(root: Path, recursive: bool = True) -> list[Path]:
+    """JPEGs under root (at any depth unless recursive is off); hidden files and folders (e.g. macOS ._x)
+    are skipped."""
     return sorted(
         p.resolve()
-        for p in root.rglob("*")
+        for p in (root.rglob("*") if recursive else root.glob("*"))
         if p.is_file()
         and p.suffix.lower() in IMAGE_SUFFIXES
         and not any(part.startswith(".") for part in p.relative_to(root).parts)
@@ -121,10 +122,18 @@ def load_metadata(
 class ScanReport:
     result: state.ScanResult
     invalid: tuple[tuple[str, str], ...]  # (path, reason) of every invalid file under the root
+    found: int = 0  # images the scan was given
+    stopped: bool = False  # ended early on request
 
 
 def scan(
-    conn: sqlite3.Connection, root: Path, images: list[Path], metadata_csv: Path | None, batch_size: int
+    conn: sqlite3.Connection,
+    root: Path,
+    images: list[Path],
+    metadata_csv: Path | None,
+    batch_size: int,
+    on_progress: ProgressCallback | None = None,
+    should_stop: StopCheck | None = None,
 ) -> ScanReport:
     """Register the images of `root` (from find_images) and split new ones into batches."""
     metadata, metadata_problems = load_metadata(images, metadata_csv)
@@ -132,7 +141,9 @@ def scan(
     def check_image(image: Path) -> list[str]:
         return validate_image(image) + metadata_problems.get(image, [])
 
-    result = state.scan_folder(conn, root, images, metadata, check_image, batch_size)
+    result = state.scan_folder(
+        conn, root, images, metadata, check_image, batch_size, on_progress, should_stop
+    )
     state.log_event(
         conn,
         "scan",
@@ -144,7 +155,7 @@ def scan(
         state.log_event(conn, "scan", f"invalid: {error}", "warning", Path(path).name)
     for name in result.changed_after_upload:
         state.log_event(conn, "scan", "changed after upload; not re-uploaded", "warning", name)
-    return ScanReport(result, invalid)
+    return ScanReport(result, invalid, len(images), bool(should_stop and should_stop()))
 
 
 # ------------------------------------------------------------------------- caption
