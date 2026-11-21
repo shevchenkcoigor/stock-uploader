@@ -46,7 +46,7 @@ def csv_rows(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
     """The files a batch's CSV covers: uploaded ones, and submitted ones once the batch is sent."""
     marks = ",".join("?" * len(CSV_FILE_STATUSES))
     return conn.execute(
-        "SELECT filename, title, keywords, category, status FROM files "
+        "SELECT filename, path, title, keywords, category, status FROM files "
         f"WHERE batch_id = ? AND status IN ({marks}) ORDER BY id",
         (batch_id, *CSV_FILE_STATUSES),
     ).fetchall()
