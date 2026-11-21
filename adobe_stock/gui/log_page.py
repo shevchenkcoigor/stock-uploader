@@ -2,7 +2,6 @@
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from adobe_stock import state
 from adobe_stock.gui.context import AppContext
+from adobe_stock.gui.widgets import make_combo
 
 COLUMNS = ("Время", "Уровень", "Команда", "Файл", "Сообщение")
 LEVELS = (("Все", None), ("Только ошибки", "error"), ("Предупреждения", "warning"), ("Инфо", "info"))
@@ -25,9 +25,11 @@ class LogPage(QWidget):
         super().__init__()
         self.ctx = ctx
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>Журнал</h2>"))
+        title = QLabel("Журнал")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
         bar = QHBoxLayout()
-        self.level = QComboBox()
+        self.level = make_combo()
         for label, value in LEVELS:
             self.level.addItem(label, value)
         self.level.currentIndexChanged.connect(self.refresh)

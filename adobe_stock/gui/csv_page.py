@@ -5,11 +5,12 @@ from pathlib import Path
 from pydantic import ValidationError
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QComboBox, QFormLayout, QMessageBox, QPushButton
+from PySide6.QtWidgets import QFormLayout, QMessageBox, QPushButton
 
 from adobe_stock import services, state
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.task_page import TaskPage
+from adobe_stock.gui.widgets import make_combo
 
 PORTAL_STEPS = (
     "В портале Adobe Stock: Uploaded Files → New → Upload CSV. Затем перед отправкой на проверку отметьте "
@@ -26,7 +27,7 @@ class CsvPage(TaskPage):
             "тот же файл. Отправка на проверку в портале выполняется вами вручную.",
         )
         form = QFormLayout()
-        self.batch = QComboBox()
+        self.batch = make_combo()
         form.addRow("Батч", self.batch)
         self.form.addLayout(form)
         self.create_button = self.add_action(QPushButton("Создать CSV"))

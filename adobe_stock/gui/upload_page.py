@@ -1,11 +1,12 @@
 """Step 4: SFTP upload of a batch."""
 
 from pydantic import ValidationError
-from PySide6.QtWidgets import QComboBox, QFormLayout, QPushButton
+from PySide6.QtWidgets import QFormLayout, QPushButton
 
 from adobe_stock import services, state
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.task_page import TaskPage
+from adobe_stock.gui.widgets import make_combo
 
 
 class UploadPage(TaskPage):
@@ -17,7 +18,7 @@ class UploadPage(TaskPage):
             "файлы запоминаются, остальные останутся в очереди.",
         )
         form = QFormLayout()
-        self.batch = QComboBox()
+        self.batch = make_combo()
         form.addRow("Батч", self.batch)
         self.form.addLayout(form)
         self.run_button = self.add_action(QPushButton("Загрузить"))

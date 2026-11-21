@@ -33,8 +33,10 @@ class TaskPage(QWidget):
         self._locked: list[QPushButton] = []
 
         layout = QVBoxLayout(self)
-        title = QLabel(f"<h2>{heading}</h2>")
-        layout.addWidget(title)
+        if heading:
+            title = QLabel(heading)
+            title.setProperty("role", "title")
+            layout.addWidget(title)
         if hint:
             note = QLabel(hint)
             note.setWordWrap(True)
@@ -59,6 +61,7 @@ class TaskPage(QWidget):
 
     def add_action(self, button: QPushButton) -> QPushButton:
         """Put a button that must be disabled while an operation runs before the cancel button."""
+        button.setProperty("primary", not self._locked)  # the first action of a page is its main one
         self.button_row.insertWidget(self.button_row.count() - 1, button)
         self._locked.append(button)
         return button

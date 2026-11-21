@@ -5,20 +5,25 @@ from pathlib import Path
 
 from pydantic import ValidationError
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QWidget,
 )
 
 from adobe_stock import caption, sftp_upload
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.task_page import TaskPage
+from adobe_stock.gui.theme import THEME_CHOICES, THEME_KEY, THEME_SYSTEM, apply_theme
+from adobe_stock.gui.widgets import make_combo
 from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL, DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT
 
 CLAUDE_CHECK_TIMEOUT_SECONDS = 30
+MAX_BATCH_SIZE = 20_000
 
 
 def check_claude(progress, should_stop) -> str:
@@ -68,11 +73,20 @@ class SettingsPage(TaskPage):
         self.label = QLineEdit(prefs.text("ai_title_label", DEFAULT_AI_TITLE_LABEL))
         self.label.setPlaceholderText("пусто = не добавлять")
         form.addRow("Метка в конце заголовка", self.label)
+        self.batch_size = QSpinBox()
+        self.batch_size.setRange(1, MAX_BATCH_SIZE)
+        self.batch_size.setValue(prefs.batch_size)
+        form.addRow("Файлов в батче", self.batch_size)
         self.csv_dir = QLineEdit(str(prefs.csv_dir))
         form.addRow("Папка для CSV", self._with_browse(self.csv_dir, self._browse_csv))
         self.claude_path = QLineEdit(prefs.text("claude_path"))
         self.claude_path.setPlaceholderText("пусто = искать автоматически")
         form.addRow("Путь к claude", self.claude_path)
+        self.theme = make_combo()
+        for label, value in THEME_CHOICES:
+            self.theme.addItem(label, value)
+        self.theme.setCurrentIndex(max(0, self.theme.findData(prefs.text(THEME_KEY, THEME_SYSTEM))))
+        form.addRow("Тема", self.theme)
         self.form.addLayout(form)
 
         self.save_button = self.add_action(QPushButton("Сохранить"))
@@ -123,7 +137,12 @@ class SettingsPage(TaskPage):
         prefs.set_text("sftp_user", self.user.text().strip())
         prefs.set_text("ai_title_label", self.label.text().strip())
         prefs.set_text("csv_dir", str(Path(self.csv_dir.text().strip()).expanduser()))
+        prefs.set_text("batch_size", str(self.batch_size.value()))
         prefs.set_text("claude_path", self.claude_path.text().strip())
+        prefs.set_text(THEME_KEY, str(self.theme.currentData()))
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            apply_theme(app, str(self.theme.currentData()))
         try:
             if self.password.text():
                 prefs.secrets.set(self.password.text())
