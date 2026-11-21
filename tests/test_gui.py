@@ -1180,3 +1180,42 @@ def test_metadata_card_never_overlaps_its_fields_in_a_short_window(app, window, 
             continue
         assert slot.y() >= previous_bottom, f"item {index} overlaps the one above it"
         previous_bottom = slot.y() + slot.height()
+
+
+def count_red_pixels(table, row: int, column: int) -> int:
+    """How many strongly red pixels the cell paints (the underline of an empty cell)."""
+    from PySide6.QtGui import QImage
+
+    image = QImage(table.viewport().size(), QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.white)
+    table.viewport().render(image)
+    rect = table.visualRect(table.model().index(row, column))
+    red = 0
+    for x in range(rect.left(), rect.right()):
+        for y in range(rect.top(), rect.bottom()):
+            color = image.pixelColor(x, y)
+            if color.red() > 180 and color.green() < 90 and color.blue() < 90:
+                red += 1
+    return red
+
+
+def test_empty_title_keywords_and_category_cells_are_underlined_in_red(app, window, prefs):
+    seed_files(prefs, ["empty.jpg", "full.jpg"])
+    conn = state.open_db(prefs.db_path)
+    conn.execute(
+        "UPDATE files SET title = 'A title', keywords = '[\"tag\"]', category = '5', status = 'pending' "
+        "WHERE filename = 'full.jpg'"
+    )
+    conn.commit()
+    window.resize(1400, 600)
+    window.show()
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    app.processEvents()
+    rows = {description.table.item(r, 0).text(): r for r in range(2)}
+
+    for column in (1, 2, 3):  # title, keywords, category
+        assert count_red_pixels(description.table, rows["empty.jpg"], column) > 20, column
+        assert count_red_pixels(description.table, rows["full.jpg"], column) == 0, column
+    assert count_red_pixels(description.table, rows["empty.jpg"], 0) == 0  # only the three, not the name

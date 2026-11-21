@@ -1,9 +1,10 @@
 """Edit a file's category in place: a double-click on the cell opens the list of Adobe categories."""
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QPersistentModelIndex
-from PySide6.QtWidgets import QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QWidget
+from PySide6.QtWidgets import QComboBox, QStyleOptionViewItem, QWidget
 
 from adobe_stock.categories import CATEGORIES
+from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.widgets import make_combo
 
 NO_CATEGORY = "—"
@@ -17,7 +18,7 @@ def category_code(name: str) -> str:
     return ""
 
 
-class CategoryDelegate(QStyledItemDelegate):
+class CategoryDelegate(EmptyCellDelegate):
     def createEditor(  # noqa: N802
         self, parent: QWidget, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex
     ) -> QWidget:

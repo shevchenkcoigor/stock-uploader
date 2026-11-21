@@ -32,6 +32,7 @@ from adobe_stock.gui.bulk_bar import BulkBar
 from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
 from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
+from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
@@ -219,7 +220,9 @@ class DescriptionPage(TaskPage):
         self.table.setColumnWidth(COL_CATEGORY, 150)
         self.table.setColumnWidth(COL_RESOLUTION, 120)
         self.table.setColumnWidth(COL_SIZE, 80)
-        self.table.setItemDelegateForColumn(COL_CATEGORY, CategoryDelegate(self.table))
+        self.table.setItemDelegateForColumn(COL_CATEGORY, CategoryDelegate("Нет категории", self.table))
+        self.table.setItemDelegateForColumn(COL_TITLE, EmptyCellDelegate("Нет заголовка", self.table))
+        self.table.setItemDelegateForColumn(COL_KEYWORDS, EmptyCellDelegate("Нет ключевых слов", self.table))
         self.table.setColumnWidth(COL_STATUS, 130)
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.table.itemChanged.connect(self._cell_edited)
