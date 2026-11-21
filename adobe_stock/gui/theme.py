@@ -90,6 +90,8 @@ QLabel[role="error"] {{ color: {danger}; font-size: 12px; }}
 QLineEdit[mono="true"] {{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }}
 QCheckBox {{ spacing: 8px; color: {ink}; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {border_strong}; border-radius: 4px; background: {surface}; }}
+QTableView::indicator, QListView::indicator {{ width: 16px; height: 16px; border: 1px solid {border_strong}; border-radius: 4px; background: {surface}; }}
+QTableView::indicator:checked, QListView::indicator:checked {{ background: {accent}; border-color: {accent}; image: url("{tick_url}"); }}
 QCheckBox::indicator:checked {{ background: {accent}; border-color: {accent}; image: url("{tick_url}"); }}
 QCheckBox::indicator:focus {{ border: 2px solid {accent}; }}
 QToolTip {{ background: {surface}; color: {ink}; border: 1px solid {border}; }}

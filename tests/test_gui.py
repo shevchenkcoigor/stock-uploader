@@ -847,3 +847,39 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     assert len(description.table.selectionModel().selectedRows()) == 5
     bar.clear_clicked.emit()
     assert bar.isHidden()
+
+
+def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):
+    seed_files(prefs, [f"f{n:02d}.jpg" for n in range(25)])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    first, second = description.table.item(0, 0), description.table.item(1, 0)
+    assert first.flags() & Qt.ItemFlag.ItemIsUserCheckable
+    first.setCheckState(Qt.CheckState.Checked)
+    assert description.bulk_bar.isHidden()  # one is not a bulk
+    second.setCheckState(Qt.CheckState.Checked)
+    assert description.bulk_bar.count_label.text() == "Выбрано 2"
+    app.processEvents()
+
+    description._go_page(1)  # the marks outlive the page, and come back with it
+    description._go_page(0)
+    assert description.table.item(0, 0).checkState() == Qt.CheckState.Checked
+    description.table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+    assert description.bulk_bar.isHidden()
+
+    description.tiles_button.click()  # the same marks on tiles
+    assert description.tiles.item(0).checkState() == Qt.CheckState.Checked
+    description.tiles.item(2).setCheckState(Qt.CheckState.Checked)
+    assert description.bulk_bar.count_label.text() == "Выбрано 2"
+
+
+def test_description_clear_and_select_all_update_the_checkboxes(app, window, prefs):
+    seed_files(prefs, ["a.jpg", "b.jpg", "c.jpg"])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    description.bulk_bar.select_all_clicked.emit()
+    assert [description.table.item(r, 0).checkState() for r in range(3)] == [Qt.CheckState.Checked] * 3
+    description.bulk_bar.clear_clicked.emit()
+    assert [description.table.item(r, 0).checkState() for r in range(3)] == [Qt.CheckState.Unchecked] * 3

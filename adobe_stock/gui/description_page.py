@@ -170,6 +170,7 @@ class DescriptionPage(TaskPage):
         self.table.setColumnWidth(COL_STATUS, 110)
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.table.itemChanged.connect(self._cell_edited)
+        self.table.itemChanged.connect(self._table_check_changed)
         self.table.horizontalHeader().setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
@@ -192,6 +193,7 @@ class DescriptionPage(TaskPage):
         self.tiles.setWordWrap(True)
         self.tiles.setSpacing(4)
         self.tiles.itemSelectionChanged.connect(self._tile_selected)
+        self.tiles.itemChanged.connect(self._tile_check_changed)
         self.tiles.itemDoubleClicked.connect(lambda item: open_file(item.data(FILE_PATH_ROLE) or ""))
         attach_file_menu(self.tiles, lambda pos: self._path_of(self.tiles.itemAt(pos)))
         attach_file_menu(self.table, lambda pos: self._path_of(self._name_item(self.table.itemAt(pos))))
@@ -369,7 +371,8 @@ class DescriptionPage(TaskPage):
         name.setToolTip(row["path"])
         name.setData(FILE_PATH_ROLE, row["path"])
         name.setFont(mono_font())
-        name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        name.setFlags((name.flags() & ~Qt.ItemFlag.ItemIsEditable) | Qt.ItemFlag.ItemIsUserCheckable)
+        name.setCheckState(self._check_state(row["filename"]))
         self.table.setItem(index, COL_NAME, name)
         self.table.setItem(index, COL_TITLE, QTableWidgetItem(row["title"]))
         self.table.setItem(index, COL_KEYWORDS, QTableWidgetItem(", ".join(json.loads(row["keywords"]))))
@@ -392,6 +395,8 @@ class DescriptionPage(TaskPage):
         )
         item.setData(Qt.ItemDataRole.UserRole, row["filename"])
         item.setData(FILE_PATH_ROLE, row["path"])
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(self._check_state(row["filename"]))
         item.setToolTip(f"{row['filename']}\n{view.label}")
         self.tiles.addItem(item)
 
@@ -479,6 +484,7 @@ class DescriptionPage(TaskPage):
                 self.tiles.setCurrentRow(current, QItemSelectionModel.SelectionFlag.NoUpdate)
         finally:
             self._loading = was_loading
+        self._sync_checks()
         self.bulk_bar.set_count(self._marked_count())
 
     # ---- bulk edit ----------------------------------------------------------------------------
@@ -486,10 +492,44 @@ class DescriptionPage(TaskPage):
     def _marked_count(self) -> int:
         return sum(1 for row in self._visible if row["filename"] in self._marked)
 
+    def _check_state(self, filename: str) -> Qt.CheckState:
+        return Qt.CheckState.Checked if filename in self._marked else Qt.CheckState.Unchecked
+
     def _remark(self, picked: set[str]) -> None:
-        """A click or key on the views replaces the marks of this page with what is selected there."""
+        """Selecting two or more rows (Cmd/Shift-click) marks them; one row is just the file being edited."""
+        if len(picked) < 2:
+            return
         self._marked = picked
-        self.bulk_bar.set_count(len(picked))
+        self._sync_checks()
+        self.bulk_bar.set_count(self._marked_count())
+
+    def _sync_checks(self) -> None:
+        was_loading, self._loading = self._loading, True
+        try:
+            for index, row in enumerate(self._current_rows()):
+                state_now = self._check_state(row["filename"])
+                for item in (self.table.item(index, COL_NAME), self.tiles.item(index)):
+                    if item is not None and item.checkState() != state_now:
+                        item.setCheckState(state_now)
+        finally:
+            self._loading = was_loading
+
+    def _table_check_changed(self, item: QTableWidgetItem) -> None:
+        if not self._loading and item.column() == COL_NAME:
+            rows = self._current_rows()
+            if item.row() < len(rows):
+                self._toggle_mark(rows[item.row()]["filename"], item.checkState() == Qt.CheckState.Checked)
+
+    def _tile_check_changed(self, item: QListWidgetItem) -> None:
+        if not self._loading:
+            self._toggle_mark(
+                str(item.data(Qt.ItemDataRole.UserRole)), item.checkState() == Qt.CheckState.Checked
+            )
+
+    def _toggle_mark(self, filename: str, marked: bool) -> None:
+        self._marked = self._marked | {filename} if marked else self._marked - {filename}
+        self.bulk_bar.set_count(self._marked_count())
+        QTimer.singleShot(0, self._select_in_views)  # the marked rows are highlighted too, after the click
 
     def _select_all(self) -> None:
         self._marked = {row["filename"] for row in self._visible}

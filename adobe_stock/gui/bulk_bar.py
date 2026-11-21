@@ -31,7 +31,7 @@ class BulkBar(QFrame):
         for code, name in CATEGORIES.items():
             self.category_box.addItem(name, str(code))
         row.addWidget(self.category_box)
-        self.apply_button = QPushButton("Применить")
+        self.apply_button = QPushButton("Пометить")
         self.apply_button.clicked.connect(self._apply)
         row.addWidget(self.apply_button)
         select_all = QPushButton("Выбрать все")
