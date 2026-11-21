@@ -37,7 +37,7 @@ from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
 from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import chip, chip_html, dot_icon, drop_cell_widgets, status_cell, view_of
@@ -291,7 +291,7 @@ class DescriptionPage(TaskPage):
         self.tiles.itemDoubleClicked.connect(lambda item: open_file(item.data(FILE_PATH_ROLE) or ""))
         attach_file_menu(self.tiles, lambda pos: self._path_of(self.tiles.itemAt(pos)))
         attach_file_menu(self.table, lambda pos: self._path_of(self._name_item(self.table.itemAt(pos))))
-        self.table.cellDoubleClicked.connect(self._cell_double_clicked)
+        open_on_click(self.table, [COL_NAME])
 
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -481,10 +481,6 @@ class DescriptionPage(TaskPage):
     @staticmethod
     def _path_of(item) -> str:
         return (item.data(FILE_PATH_ROLE) or "") if item is not None else ""
-
-    def _cell_double_clicked(self, row: int, column: int) -> None:
-        if column == COL_NAME:  # the other cells are edited on double-click
-            open_file(self._path_of(self.table.item(row, COL_NAME)))
 
     def _set_table_row(self, index: int, row: sqlite3.Row) -> None:
         name = QTableWidgetItem(row["filename"])

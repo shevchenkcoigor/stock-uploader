@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from adobe_stock import services, state
 from adobe_stock.gui.context import AppContext
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_on_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import drop_cell_widgets, status_cell, view_of
@@ -220,7 +220,7 @@ class ScanPage(TaskPage):
             self.table, PROBLEM_COLUMNS, SORT_FIELDS, field="status", descending=False, on_change=self._sorted
         )
         attach_file_menu(self.table, self._path_at)
-        self.table.cellDoubleClicked.connect(lambda row, _column: self._open_row(row))
+        open_on_click(self.table)
         column.addWidget(self.table, 1)
         self.pager = Pager()
         self.pager.page_selected.connect(self._go_page)
@@ -268,9 +268,6 @@ class ScanPage(TaskPage):
     def _row_path(self, row: int) -> str:
         item = self.table.item(row, COL_FILE)
         return item.data(FILE_PATH_ROLE) or "" if item is not None else ""
-
-    def _open_row(self, row: int) -> None:
-        open_file(self._row_path(row))
 
     def _fill_problems(self) -> None:
         keys = {

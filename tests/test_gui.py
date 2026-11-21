@@ -862,29 +862,30 @@ def test_saving_a_file_that_was_submitted_meanwhile_is_refused_with_a_message(ap
     assert description.table.rowCount() == 0  # and the list caught up
 
 
-def test_double_click_on_a_scan_row_opens_the_file(app, window, prefs, monkeypatch):
+def test_click_on_a_scan_row_opens_the_file(app, window, prefs, monkeypatch):
     opened = []
-    monkeypatch.setattr("adobe_stock.gui.scan_page.open_file", opened.append)
+    monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", opened.append)
     seed_files(prefs, ["bad.jpg"])
     conn = state.open_db(prefs.db_path)
     conn.execute("UPDATE files SET status = 'invalid', error = 'not a JPEG'")
     conn.commit()
     scan_page = page(window, "Скан")
     scan_page.refresh()
-    scan_page.table.cellDoubleClicked.emit(0, 1)  # any cell of the row, not only the name
+    scan_page.table.cellClicked.emit(0, 1)  # any cell of the row, not only the name
     assert [Path(path).name for path in opened] == ["bad.jpg"]
 
 
-def test_description_opens_a_file_by_double_click_on_its_name_only(app, window, prefs, monkeypatch):
+def test_description_opens_a_file_by_click_on_its_name_only(app, window, prefs, monkeypatch):
     opened = []
+    monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", opened.append)
     monkeypatch.setattr("adobe_stock.gui.description_page.open_file", opened.append)
     seed_files(prefs, ["a.jpg"])
     window.nav.setCurrentRow(1)
     description = page(window, "Описание")
     description.refresh()
-    description.table.cellDoubleClicked.emit(0, 1)  # the title cell is edited instead
+    description.table.cellClicked.emit(0, 1)  # the title cell is edited instead
     assert opened == []
-    description.table.cellDoubleClicked.emit(0, 0)
+    description.table.cellClicked.emit(0, 0)
     assert [Path(path).name for path in opened] == ["a.jpg"]
 
     description.tiles_button.click()
@@ -1925,3 +1926,28 @@ def test_upload_batch_list_shows_the_batch_status(app, window, prefs):
     upload.refresh()
 
     assert "статус: Описан: 2, На SFTP: 1" in upload.batch.itemText(0)
+
+
+def test_click_on_an_upload_row_opens_its_picture(app, window, prefs, monkeypatch):
+    from adobe_stock.gui.upload_queue import UploadRow
+
+    opened: list[str] = []
+    monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", lambda path: opened.append(path) or True)
+    upload = page(window, "Загрузка")
+    upload.show_queue([UploadRow("a.jpg", 100, "queued", 0.0, "/pics/a.jpg")])
+
+    upload.files.cellClicked.emit(0, 1)  # the size cell does nothing
+    upload.files.cellClicked.emit(0, 0)
+
+    assert opened == ["/pics/a.jpg"]
+
+
+def test_click_on_a_csv_row_filename_opens_its_picture(app, window, prefs, monkeypatch):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    opened: list[str] = []
+    monkeypatch.setattr("adobe_stock.gui.file_actions.open_file", lambda path: opened.append(path) or True)
+
+    csv_page.table.cellClicked.emit(0, 1)  # the title is edited, not opened
+    csv_page.table.cellClicked.emit(0, 0)
+
+    assert len(opened) == 1 and opened[0].endswith(".jpg")

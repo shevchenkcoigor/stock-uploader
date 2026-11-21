@@ -25,7 +25,7 @@ from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import category_name
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager
 from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell, view_of
@@ -239,6 +239,7 @@ class CsvPage(TaskPage):
         header.setSectionResizeMode(COL_TITLE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_KEYWORDS, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(COL_FILENAME, 180)
+        open_on_click(table, [COL_FILENAME], self._file_missing)
         table.setColumnWidth(COL_CATEGORY, 150)
         header.setSectionResizeMode(COL_RELEASES, QHeaderView.ResizeMode.Fixed)
         # always empty (AI images have no releases): as narrow as the full word «Releases» allows
@@ -322,6 +323,9 @@ class CsvPage(TaskPage):
         if path and not open_file(path):
             self.status.setText(f"Файл не найден на диске: {path}. Нажмите «Пересобрать».")
 
+    def _file_missing(self, path: str) -> None:
+        self.status.setText(f"Файл не найден на диске: {path}")
+
     def _file_selected(self) -> None:
         items = self.files.selectedItems()
         if self._loading or not items:
@@ -362,6 +366,8 @@ class CsvPage(TaskPage):
         locked = row["status"] == state.SUBMITTED  # a file already sent is final
         name = read_only(QTableWidgetItem(row["filename"]))
         name.setFont(mono_font())
+        name.setData(FILE_PATH_ROLE, row["path"])
+        name.setToolTip(row["path"])
         cells = (
             name,
             QTableWidgetItem(row["title"]),
