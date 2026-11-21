@@ -1023,13 +1023,12 @@ class DescriptionPage(TaskPage):
             f"Подписано: {report.captioned} из {report.total}\nНа проверке: {len(report.flagged)}\n"
             f"Новых батчей: {report.new_batches}" + ("\nОтменено пользователем" if report.stopped else "")
         )
-        for message in report.flagged:
-            self.write(f"ПРОВЕРКА {message}")
-        if report.flagged:
-            self.write("Эти файлы не пойдут в загрузку, пока вы не одобрите их (статус «Проверить»).")
         for message in report.errors:
             self.write(f"ОШИБКА {message}")
-        self.status.setText("Готово" if not report.errors else "Готово, есть ошибки")
+        summary = "Готово" if not report.errors else "Готово, есть ошибки"
+        if report.flagged:
+            summary += f" · на проверке: {len(report.flagged)}"
+        self.status.setText(summary)
 
     def _approve(self, names: list[str] | None) -> None:
         batch_size = self.ctx.prefs.batch_size

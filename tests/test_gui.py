@@ -153,7 +153,8 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     description._run_caption()
     finish(app, description)
     assert "Подписано: 1 из 2" in description.output.toPlainText()
-    assert "famous logo" in description.output.toPlainText()
+    assert "famous logo" not in description.output.toPlainText()
+    assert "на проверке: 1" in description.status.text()
 
     description.refresh()
     # the captioned file is "Описан" and the flagged one "Проверить": both stay on the page
