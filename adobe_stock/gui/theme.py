@@ -116,7 +116,7 @@ QPushButton:hover {{ background: {accent_soft}; }}
 QPushButton:disabled {{ color: {ink_muted}; border-color: {border}; }}
 QPushButton:focus {{ border: 2px solid {accent}; }}
 QPushButton[primary="true"] {{ background: {accent}; border-color: {accent}; color: {accent_ink}; font-weight: 600; }}
-QPushButton[primary="true"]:disabled {{ background: {accent_soft}; border-color: {accent_soft}; color: {ink_muted}; }}
+QPushButton[primary="true"]:disabled {{ background: {surface_sunken}; border-color: {border}; color: {ink_muted}; }}
 
 QLineEdit, QSpinBox, QComboBox, QPlainTextEdit, QTextEdit {{ height: 30px; padding: 0 8px; border: 1px solid {border_strong};
     border-radius: 4px; background: {surface}; color: {ink}; selection-background-color: {accent};
