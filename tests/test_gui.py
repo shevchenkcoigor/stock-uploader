@@ -184,6 +184,38 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     assert "На SFTP: 2" in window.summary.text()
 
 
+def upload_rows(count: int, state_name: str = "queued"):
+    from adobe_stock.gui.upload_queue import UploadRow
+
+    return [UploadRow(f"f{index:03d}.jpg", 100, state_name, 0.0) for index in range(count)]
+
+
+def test_upload_page_shows_the_queue_one_page_at_a_time(app, window):
+    from adobe_stock.gui import upload_page as upload_module
+
+    upload_page = page(window, "Загрузка")
+    size = upload_module.PAGE_SIZE
+    upload_page.show_queue(upload_rows(size * 2 + 5))
+    assert upload_page.files.rowCount() == size
+    assert upload_page.pager.range_label.text() == f"1–{size} из {size * 2 + 5}"
+    upload_page._go_page(2)
+    assert upload_page.files.rowCount() == 5
+    assert upload_page.files.item(0, 0).text() == f"f{size * 2:03d}.jpg"  # sorted before it is sliced
+    assert upload_page.summary.text().startswith(f"0 из {size * 2 + 5}")  # totals cover the whole queue
+
+
+def test_upload_page_goes_back_to_the_last_page_when_the_queue_shrinks(app, window):
+    from adobe_stock.gui import upload_page as upload_module
+
+    upload_page = page(window, "Загрузка")
+    size = upload_module.PAGE_SIZE
+    upload_page.show_queue(upload_rows(size * 2))
+    upload_page._go_page(1)
+    upload_page.show_queue(upload_rows(3))
+    assert upload_page.files.rowCount() == 3
+    assert upload_page.pager.range_label.text() == "1–3 из 3"
+
+
 def test_upload_page_reports_a_connection_error(app, window, prefs, tmp_path, monkeypatch):
     folder = make_unlabelled_folder(tmp_path, ["a.jpg"])
     services.scan(state.open_db(prefs.db_path), folder.resolve(), services.find_images(folder), None, 1000)

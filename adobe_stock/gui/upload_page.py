@@ -24,6 +24,7 @@ from adobe_stock.gui import upload_queue as queue
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import format_size
 from adobe_stock.gui.header_sort import HeaderSort
+from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import tile_icon
@@ -32,6 +33,7 @@ from adobe_stock.gui.widgets import make_combo, mono_font
 COLUMNS = ("Файл", "Размер", "Прогресс", "Статус")
 SORT_FIELDS = ("name", "size", "progress", "status")
 COL_NAME, COL_SIZE, COL_PROGRESS, COL_STATUS = range(4)
+PAGE_SIZE = 20
 PROGRESS_STEPS = 1000  # resolution of the overall bar
 FILE_BAR_STEPS = 100
 THUMB_SIDE = 40
@@ -68,6 +70,7 @@ class UploadPage(TaskPage):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__(ctx, "")
         self._rows: list[queue.UploadRow] = []
+        self._page = 0
         form = QFormLayout()
         self.batch = make_combo()
         form.addRow("Батч", self.batch)
@@ -102,17 +105,20 @@ class UploadPage(TaskPage):
         bar_row.addWidget(self.progress_label)
 
         self.files = self._make_table()
+        self.pager = Pager()
+        self.pager.page_selected.connect(self._go_page)
         card = QFrame()
         card.setObjectName("panel")
         inside = QVBoxLayout(card)
         inside.addLayout(head)
         inside.addLayout(bar_row)
         inside.addWidget(self.files, 1)
+        inside.addWidget(self.pager)
         self.form.addWidget(card, 1)
         self.output.setVisible(False)  # the details are in «Журнал»; the status line says what happened
 
         self.sorter = HeaderSort(
-            self.files, COLUMNS, SORT_FIELDS, field="status", descending=False, on_change=self._render
+            self.files, COLUMNS, SORT_FIELDS, field="status", descending=False, on_change=self._resort
         )
 
     def _make_table(self) -> QTableWidget:
@@ -162,8 +168,19 @@ class UploadPage(TaskPage):
         self._rows = list(rows)
         self._render()
 
+    def _resort(self) -> None:
+        self._page = 0
+        self._render()
+
+    def _go_page(self, number: int) -> None:
+        self._page = number
+        self._render()
+
     def _render(self) -> None:
-        rows = queue.sorted_rows(self._rows, self.sorter.field, self.sorter.descending)
+        ordered = queue.sorted_rows(self._rows, self.sorter.field, self.sorter.descending)
+        self._page = min(self._page, pages_in(len(ordered), PAGE_SIZE) - 1)
+        rows = ordered[self._page * PAGE_SIZE : (self._page + 1) * PAGE_SIZE]
+        self.pager.show_page(len(ordered), PAGE_SIZE, self._page)
         drop_cell_widgets(self.files, COL_PROGRESS)
         drop_cell_widgets(self.files, COL_STATUS)
         self.files.setRowCount(len(rows))
@@ -176,9 +193,9 @@ class UploadPage(TaskPage):
             self.files.setCellWidget(index, COL_PROGRESS, self._file_bar(row.progress))
             self.files.setCellWidget(index, COL_STATUS, view_cell(STATE_VIEWS[row.state]))
         totals = queue.totals_of(self._rows)
-        self.summary.setText(summary_text(totals) if rows else "В очереди пусто")
+        self.summary.setText(summary_text(totals) if ordered else "В очереди пусто")
         self.progress.setValue(round(totals.fraction * PROGRESS_STEPS))
-        self.progress_label.setText(progress_text(totals) if rows else "")
+        self.progress_label.setText(progress_text(totals) if ordered else "")
         self._sync_buttons(totals)
 
     @staticmethod
