@@ -33,6 +33,7 @@ from adobe_stock.gui.tag_editor import parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.widgets import mono_font
 from adobe_stock.metadata_csv import HEADERS
+from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL
 
 FILES_WIDTH = 560
 ACTION_COLUMN_WIDTH = 120
@@ -257,7 +258,8 @@ class CsvPage(TaskPage):
     def refresh(self) -> None:
         self._offered = self.ctx.read(csv_batches.batches_without_csv)
         self._batch_statuses = self.ctx.read(state.batch_status_counts)
-        self._entries = self.ctx.read(csv_batches.csv_entries)
+        label = self.ctx.prefs.text("ai_title_label", DEFAULT_AI_TITLE_LABEL)
+        self._entries = self.ctx.read(lambda conn: csv_batches.csv_entries(conn, label))
         if self._batch not in {entry.batch_id for entry in self._entries}:
             self._batch = None
         self._fill_files()

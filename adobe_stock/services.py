@@ -455,7 +455,8 @@ def build_csv(
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     write_adobe_csv(items, target)
-    problems = validate_csv_file(target, {item.filename for item in items})
+    names = {item.filename for item in items}
+    problems = [*check_items(items, names, settings.ai_title_label), *validate_csv_file(target, names)]
     if problems:
         for problem in problems:
             state.log_event(conn, "csv", f"batch {batch}: {problem}", "error")

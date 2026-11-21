@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adobe_stock.categories import CATEGORIES
+from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL
 
 HEADERS = ("Filename", "Title", "Keywords", "Category", "Releases")
 MAX_ROWS = 20_000
@@ -69,8 +70,21 @@ def read_source(path: Path) -> list[Item]:
     ]
 
 
-def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
-    """Return problems found in the metadata, including filename mismatches."""
+def without_ai_label(title: str, label: str) -> str:
+    """The title minus the trailing AI label the tool adds itself (`with_ai_label`), if it has one."""
+    label = label.strip()
+    if label and title.lower().endswith(label.lower()):
+        return title[: len(title) - len(label)].rstrip()
+    return title
+
+
+def check_items(
+    items: list[Item], existing_files: set[str], ai_label: str = DEFAULT_AI_TITLE_LABEL
+) -> list[str]:
+    """Return problems found in the metadata, including filename mismatches.
+
+    `ai_label` is the title suffix the tool adds itself; it is not counted as AI wording.
+    """
     problems: list[str] = []
     if len(items) > MAX_ROWS:
         problems.append(f"{len(items)} rows, limit is {MAX_ROWS}")
@@ -87,7 +101,7 @@ def check_items(items: list[Item], existing_files: set[str]) -> list[str]:
             problems.append(f"{item.filename}: empty title")
         if len(item.title) > MAX_TITLE_CHARS:
             problems.append(f"{item.filename}: title longer than {MAX_TITLE_CHARS}")
-        found = AI_TERM_PATTERN.search(item.title)
+        found = AI_TERM_PATTERN.search(without_ai_label(item.title, ai_label))
         if found:
             problems.append(
                 f"{item.filename}: title mentions {found.group()!r}; Adobe labels AI content itself"

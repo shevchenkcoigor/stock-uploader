@@ -7,6 +7,7 @@ from pathlib import Path
 
 from adobe_stock import state
 from adobe_stock.metadata_csv import Item, check_items
+from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL
 
 BUILT = "built"
 SENT = "sent"
@@ -36,10 +37,10 @@ def item_of(row: sqlite3.Row) -> Item:
     return Item(row["filename"], row["title"], tuple(json.loads(row["keywords"])), row["category"])
 
 
-def row_has_problem(row: sqlite3.Row) -> bool:
+def row_has_problem(row: sqlite3.Row, ai_label: str = DEFAULT_AI_TITLE_LABEL) -> bool:
     """True when Adobe would not take this row as it is: no title, no keywords or a wrong category."""
     item = item_of(row)
-    return bool(check_items([item], {item.filename}))
+    return bool(check_items([item], {item.filename}, ai_label))
 
 
 def csv_rows(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
@@ -52,7 +53,7 @@ def csv_rows(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def csv_entries(conn: sqlite3.Connection) -> list[CsvEntry]:
+def csv_entries(conn: sqlite3.Connection, ai_label: str = DEFAULT_AI_TITLE_LABEL) -> list[CsvEntry]:
     """Batches with a built CSV, newest first."""
     batches = conn.execute(
         "SELECT id, csv_path, folder, part FROM batches WHERE csv_path IS NOT NULL ORDER BY id DESC"
@@ -61,7 +62,7 @@ def csv_entries(conn: sqlite3.Connection) -> list[CsvEntry]:
     for batch in batches:
         rows = csv_rows(conn, batch["id"])
         if rows:
-            entry = _entry(batch["id"], Path(batch["csv_path"]), rows)
+            entry = _entry(batch["id"], Path(batch["csv_path"]), rows, ai_label)
             entries.append(
                 replace(
                     entry,
@@ -88,8 +89,8 @@ def batch_waiting(conn: sqlite3.Connection, batch_id: int) -> tuple[tuple[str, i
     return tuple((row["status"], row["n"]) for row in rows)
 
 
-def _entry(batch_id: int, path: Path, rows: list[sqlite3.Row]) -> CsvEntry:
-    bad = sum(1 for row in rows if row_has_problem(row))
+def _entry(batch_id: int, path: Path, rows: list[sqlite3.Row], ai_label: str) -> CsvEntry:
+    bad = sum(1 for row in rows if row_has_problem(row, ai_label))
     waiting = any(row["status"] == state.UPLOADED for row in rows)
     if not waiting:
         kind = SENT

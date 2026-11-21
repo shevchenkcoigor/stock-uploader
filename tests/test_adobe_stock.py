@@ -186,6 +186,29 @@ def test_check_items_rejects_ai_wording_in_title_and_keywords():
     assert not any("c.jpg" in p for p in problems)
 
 
+def test_check_items_accepts_the_ai_label_at_the_end_of_the_title():
+    items = [
+        Item("a.jpg", "Forest at dawn Generative AI", ("tree",)),
+        Item("b.jpg", "Generative AI forest at dawn", ("tree",)),
+        Item("c.jpg", "Forest at dawn Midjourney Generative AI", ("tree",)),
+    ]
+    problems = check_items(items, {"a.jpg", "b.jpg", "c.jpg"})
+    assert not any("a.jpg" in p for p in problems)
+    assert any("b.jpg" in p for p in problems)  # only a trailing label is allowed
+    assert any("c.jpg" in p and "Midjourney" in p for p in problems)
+
+
+def test_check_items_uses_the_configured_label():
+    items = [
+        Item("a.jpg", "Forest at dawn Made with Foo", ("tree",)),
+        Item("b.jpg", "Forest at dawn Generative AI", ("tree",)),
+    ]
+    problems = check_items(items, {"a.jpg", "b.jpg"}, ai_label="Made with Foo")
+    assert not any("a.jpg" in p for p in problems)
+    assert any("b.jpg" in p for p in problems)  # the default label is plain wording now
+    assert check_items(items[1:], {"b.jpg"}, ai_label="")  # no label set: the wording is a problem
+
+
 def test_with_ai_label_suffixes_trims_and_can_be_disabled():
     assert with_ai_label("Red apple", "Generative AI") == "Red apple Generative AI"
     assert with_ai_label("Red apple generative ai", "Generative AI") == "Red apple generative ai"
