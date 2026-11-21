@@ -46,10 +46,14 @@ def dot_icon(token: str) -> QIcon:
     return QIcon(pixmap)
 
 
+def chip_html(status: str) -> str:
+    view = view_of(status)
+    return f'<span style="color:{active_colors()[view.token]}">●</span> {view.label}'
+
+
 def chip(status: str) -> QLabel:
     """A pill with a coloured dot and the status word, for table cells."""
-    view = view_of(status)
-    label = QLabel(f'<span style="color:{active_colors()[view.token]}">●</span> {view.label}')
+    label = QLabel(chip_html(status))
     label.setProperty("role", "chip")
     label.setTextFormat(Qt.TextFormat.RichText)
     return label

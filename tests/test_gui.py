@@ -989,3 +989,30 @@ def test_files_needing_metadata_can_be_narrowed_to_names(tmp_path):
         "c.jpg",
     ]
     assert state.files_needing_metadata(conn, 10, []) == []
+
+
+def test_model_titles_are_short_and_readable():
+    assert [caption.model_title(model_id) for model_id in caption.MODEL_IDS] == [
+        "Haiku 5.5",
+        "Sonnet 5.5",
+        "Opus 5.5",
+        "Fable 5.2",
+    ]
+
+
+def test_card_shows_status_chip_and_resolution_and_caption_sits_above_the_picture(
+    app, window, prefs, tmp_path, monkeypatch
+):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg"])
+    assert description.status_chip.isHidden()  # no file is open
+    description.table.selectRow(0)
+    assert not description.status_chip.isHidden() and "Новый" in description.status_chip.text()
+    info = description.info_label.text()
+    assert "МБ" in info and " × " in info and info.endswith("px")  # size, then the resolution
+    assert description.card_model.itemText(0).startswith("Модель: ")
+    window.show()
+    app.processEvents()
+    panel = description.preview.parentWidget()
+    assert panel is not None
+    top_of = lambda widget: widget.mapTo(panel, widget.rect().topLeft()).y()  # noqa: E731
+    assert top_of(description.card_caption_button) < top_of(description.preview)

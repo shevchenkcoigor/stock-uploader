@@ -33,6 +33,16 @@ MODELS = (
     ("claude-fable-5-2", "most capable, heaviest on limits"),
 )
 MODEL_IDS = tuple(model_id for model_id, _ in MODELS)
+
+
+def model_title(model_id: str) -> str:
+    """A short name for a picker: claude-sonnet-5-5 -> Sonnet 5.5."""
+    parts = model_id.removeprefix("claude-").split("-")
+    versions = [part for part in parts if part.isdigit()]
+    names = [part.capitalize() for part in parts if not part.isdigit()]
+    return " ".join([*names, ".".join(versions)]).strip()
+
+
 PREVIEW_MAX_SIDE = 1568
 PREVIEW_QUALITY = 85
 CALL_TIMEOUT_SECONDS = 300

@@ -5,6 +5,7 @@ import sqlite3
 from typing import cast
 
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QTimer
+from PySide6.QtGui import QImageReader
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -32,7 +33,7 @@ from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
-from adobe_stock.gui.status import drop_cell_widgets, status_cell, view_of
+from adobe_stock.gui.status import chip, chip_html, drop_cell_widgets, status_cell, view_of
 from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import thumbnail_pixmap, tile_icon
@@ -54,6 +55,12 @@ FILTER_ALL = "all"
 def category_name(code: str) -> str:
     """The category's name for a stored code; empty when none is set (or the code is unknown)."""
     return CATEGORIES.get(int(code), "") if code.isdigit() else ""
+
+
+def resolution_text(path: str) -> str:
+    """Pixel size of the picture ("6000 × 4000 px"); empty when it cannot be read."""
+    size = QImageReader(path).size()
+    return f"{size.width()} × {size.height()} px" if size.isValid() else ""
 
 
 def format_size(size: int) -> str:
@@ -224,9 +231,24 @@ class DescriptionPage(TaskPage):
         column = QVBoxLayout(panel)
         column.setContentsMargins(16, 12, 16, 12)
         column.setSpacing(8)
+        title_row = QHBoxLayout()
         heading = QLabel("Метаданные")
         heading.setProperty("role", "heading")
-        column.addWidget(heading)
+        title_row.addWidget(heading)
+        title_row.addStretch(1)
+        self.status_chip = chip(state.NEEDS_METADATA)
+        self.status_chip.setVisible(False)
+        title_row.addWidget(self.status_chip)
+        column.addLayout(title_row)
+        caption_row = QHBoxLayout()
+        self.card_model = self._make_model_combo("Модель: ")
+        caption_row.addWidget(self.card_model, 1)
+        self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
+        self.card_caption_button.setProperty("primary", True)
+        self.card_caption_button.setToolTip("Описать только этот файл")
+        self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
+        caption_row.addWidget(self.card_caption_button)
+        column.addLayout(caption_row)
         self.preview = QLabel("Выберите файл")
         self.preview.setProperty("role", "preview")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -243,15 +265,6 @@ class DescriptionPage(TaskPage):
         self.reason_label.setProperty("role", "warn")
         self.reason_label.setWordWrap(True)
         column.addWidget(self.reason_label)
-        caption_row = QHBoxLayout()
-        self.card_model = self._make_model_combo()
-        caption_row.addWidget(self.card_model, 1)
-        self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
-        self.card_caption_button.setProperty("primary", True)
-        self.card_caption_button.setToolTip("Описать только этот файл")
-        self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
-        caption_row.addWidget(self.card_caption_button)
-        column.addLayout(caption_row)
 
         column.addWidget(self._field_label("Заголовок"))
         self.title_edit = QLineEdit()
@@ -604,6 +617,7 @@ class DescriptionPage(TaskPage):
                 self._selected = ""
                 self.preview.setPixmap(thumbnail_pixmap("", 1))
                 self.preview.setText("Выберите файл")
+                self.status_chip.setVisible(False)
                 for label in (self.name_label, self.info_label, self.reason_label):
                     label.setText("")
                 self.title_edit.clear()
@@ -623,8 +637,9 @@ class DescriptionPage(TaskPage):
         else:
             self.preview.setPixmap(pixmap)
         self.name_label.setText(row["filename"])
-        view = view_of(row["status"])
-        self.info_label.setText(f"{format_size(row['size'])} · {view.label}")
+        self.status_chip.setText(chip_html(row["status"]))
+        self.status_chip.setVisible(True)
+        self.info_label.setText(f"{format_size(row['size'])} · {resolution_text(row['path'])}".rstrip(" ·"))
         self.reason_label.setText(row["error"] or "")
         self.title_edit.setText(row["title"])
         self.keywords_edit.set_tags(json.loads(row["keywords"]))
@@ -695,11 +710,11 @@ class DescriptionPage(TaskPage):
 
     # ---- long operations ----------------------------------------------------------------------
 
-    def _make_model_combo(self) -> QComboBox:
+    def _make_model_combo(self, prefix: str = "") -> QComboBox:
         """A model picker; the one in the file list and the one in the card always show the same model."""
         combo = make_combo()
         for model_id, note in caption.MODELS:
-            combo.addItem(model_id, model_id)
+            combo.addItem(prefix + caption.model_title(model_id), model_id)
             combo.setItemData(combo.count() - 1, f"{model_id} — {note}", Qt.ItemDataRole.ToolTipRole)
         combo.setCurrentIndex(max(combo.findData(self.ctx.prefs.model), 0))
         combo.currentIndexChanged.connect(lambda index, source=combo: self._model_changed(source, index))
