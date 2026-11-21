@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTableWidget,
@@ -39,7 +40,7 @@ from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import image_size, thumbnail_pixmap, tile_icon
 from adobe_stock.gui.view_icons import grid_icon, list_icon
-from adobe_stock.gui.widgets import ElidedLabel, make_combo, mono_font
+from adobe_stock.gui.widgets import ElidedLabel, ScrollBody, make_combo, mono_font
 
 THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
 DEFAULT_THUMB_SIZE = "M"
@@ -271,9 +272,24 @@ class DescriptionPage(TaskPage):
         panel = QFrame()
         panel.setObjectName("panel")
         panel.setFixedWidth(PANEL_WIDTH)
-        column = QVBoxLayout(panel)
-        column.setContentsMargins(16, 12, 16, 12)
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(8)
+        # The fields scroll when the window is too short (e.g. while the result bar is open below),
+        # instead of being squeezed on top of each other; Prev / Next stay in view underneath.
+        scroll = QScrollArea()
+        scroll.setObjectName("card-scroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.viewport().setAutoFillBackground(False)
+        body = self.card_body = ScrollBody()
+        body.setObjectName("card-body")
+        column = QVBoxLayout(body)
+        column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
         title_row = QHBoxLayout()
         heading = QLabel("Метаданные")
         heading.setProperty("role", "heading")
@@ -347,7 +363,7 @@ class DescriptionPage(TaskPage):
         self.next_button.clicked.connect(lambda: self._step(1))
         nav.addWidget(self.prev_button)
         nav.addWidget(self.next_button)
-        column.addLayout(nav)
+        outer.addLayout(nav)
         return panel
 
     @staticmethod
@@ -355,6 +371,10 @@ class DescriptionPage(TaskPage):
         label = QLabel(text)
         label.setProperty("role", "muted")
         return label
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self.card_body.fit_height()
 
     def _set_running(self, running: bool) -> None:
         super()._set_running(running)
@@ -672,6 +692,7 @@ class DescriptionPage(TaskPage):
         finally:
             self._loading = was_loading
         self._update_dirty()
+        QTimer.singleShot(0, self.card_body.fit_height)  # once the new tags have been laid out
 
     def _show_row(self, row: sqlite3.Row) -> None:
         pixmap = thumbnail_pixmap(row["path"], PREVIEW_SIDE)

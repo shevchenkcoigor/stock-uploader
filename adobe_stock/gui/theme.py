@@ -82,6 +82,7 @@ QPushButton[page="true"] {{ height: 28px; min-width: 28px; padding: 0 6px; }}
 QPushButton[page="true"]:checked {{ background: {accent_soft}; border-color: {accent}; font-weight: 600; }}
 QListWidget#tiles {{ background: {surface}; border: 0; }}
 QListWidget#tiles::item {{ border-radius: 4px; color: {ink}; }}
+QScrollArea#card-scroll, QWidget#card-body {{ background: transparent; }}
 QFrame#bulk {{ background: {accent_soft}; border-radius: 8px; }}
 QFrame#bulk QLabel {{ background: transparent; }}
 QListWidget#tiles::item:selected {{ background: {accent_soft}; color: {ink}; }}

@@ -1,8 +1,8 @@
 """Small shared widgets."""
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QResizeEvent
-from PySide6.QtWidgets import QComboBox, QLabel, QListView, QSizePolicy, QWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QLayout, QListView, QSizePolicy, QWidget
 
 MONO_PIXELS = 12
 
@@ -41,7 +41,9 @@ class ElidedLabel(QLabel):
 
     def sizeHint(self) -> QSize:  # noqa: N802
         hint = super().sizeHint()
-        wanted = self.fontMetrics().horizontalAdvance(self._full) + 2 * self.margin() + self.indent()
+        metrics = self.fontMetrics()  # what the label adds to its text (padding, margins) stays included
+        shown = QLabel.text(self)
+        wanted = hint.width() - metrics.horizontalAdvance(shown) + metrics.horizontalAdvance(self._full)
         if self._max_width is not None:
             wanted = min(wanted, self._max_width)
         return QSize(wanted, hint.height())
@@ -57,6 +59,55 @@ class ElidedLabel(QLabel):
         width = self.width() if self.isVisible() or self.width() > 1 else self.sizeHint().width()
         shown = self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideMiddle, max(width, 1))
         super().setText(shown)
+
+
+class ScrollBody(QWidget):
+    """The content of a scroll area whose height depends on its width (wrapping tag chips).
+
+    QScrollArea does not hold such content at its height-for-width minimum, so the fields got squeezed
+    on top of each other in a short window. This keeps the minimum height in step with the width.
+    """
+
+    def event(self, event: QEvent) -> bool:  # noqa: N802
+        handled = super().event(event)
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.LayoutRequest):
+            self._fit_height()
+        return handled
+
+    def fit_height(self) -> None:
+        """Hold the minimum height this content needs at its current width."""
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        layout = self.layout()
+        if layout is None or self.width() <= 0:
+            return
+        needed = max(
+            self._needed_height(layout, self.width()),
+            layout.minimumHeightForWidth(self.width()),
+            layout.sizeHint().height(),  # the preferred height leaves room for a few rows of tags
+        )
+        if needed > 0 and needed != self.minimumHeight():
+            self.setMinimumHeight(needed)
+
+    @staticmethod
+    def _needed_height(layout: QLayout, width: int) -> int:
+        """Sum of the rows' minimum heights at this width (Qt's own total under-counts wrapped rows)."""
+        margins = layout.contentsMargins()
+        inner = width - margins.left() - margins.right()
+        heights = []
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None or item.isEmpty():
+                continue
+            wrapped = item.hasHeightForWidth()
+            heights.append(
+                max(item.minimumHeightForWidth(inner), item.heightForWidth(inner))
+                if wrapped
+                else item.minimumSize().height()
+            )
+        spacing = max(layout.spacing(), 0)
+        return sum(heights) + spacing * max(len(heights) - 1, 0) + margins.top() + margins.bottom()
 
 
 def mono_font() -> QFont:

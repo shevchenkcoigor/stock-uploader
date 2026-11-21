@@ -1150,3 +1150,33 @@ def test_elided_label_keeps_the_full_text_and_never_forces_its_width(app):
     assert label.sizeHint().width() <= 120
     label.resize(80, 20)
     assert QLabel.text(label).endswith("x") and "…" in QLabel.text(label)
+
+
+def test_metadata_card_never_overlaps_its_fields_in_a_short_window(app, window, prefs):
+    seed_files(prefs, ["a.jpg"])
+    conn = state.open_db(prefs.db_path)
+    conn.execute(
+        "UPDATE files SET title = 'T', keywords = ?, status = 'pending'",
+        (json.dumps([f"keyword{n}" for n in range(30)]),),
+    )
+    conn.commit()
+    window.resize(1250, 520)  # short, as when the result bar is open at the bottom
+    window.show()
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    description.output.setVisible(True)
+    description.table.selectRow(0)
+    app.processEvents()
+    app.processEvents()
+
+    layout = description.card_body.layout()
+    assert layout is not None
+    previous_bottom = 0
+    for index in range(layout.count()):
+        item = layout.itemAt(index)
+        slot = item.geometry()
+        if item.isEmpty() or slot.height() <= 0:  # hidden widgets keep a stale slot
+            continue
+        assert slot.y() >= previous_bottom, f"item {index} overlaps the one above it"
+        previous_bottom = slot.y() + slot.height()
