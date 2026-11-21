@@ -1,10 +1,10 @@
-"""Step 4: the CSV files of the batches (left) and the rows of the chosen one, editable (right)."""
+"""Step 4: the CSV files of the batches (left) and the rows of the chosen one, read-only (right)."""
 
 import json
 import sqlite3
 
 from pydantic import ValidationError
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from adobe_stock import csv_batches, services, state
-from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
+from adobe_stock.gui.category_delegate import CategoryDelegate
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import category_name
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
@@ -29,7 +29,6 @@ from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager
 from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell, view_of
-from adobe_stock.gui.tag_editor import parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.widgets import mono_font
 from adobe_stock.metadata_csv import HEADERS
@@ -47,7 +46,6 @@ ROW_COLUMNS = HEADERS  # Adobe's own names: Filename, Title, Keywords, Category,
 ROW_FIELDS = ("name", "title", "keywords", "category", None)  # Releases cannot be sorted
 COL_FILENAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RELEASES = range(5)
 HEADER_PADDING = 40  # the header cell's own padding around its text
-EDITABLE_COLUMNS = (COL_TITLE, COL_KEYWORDS, COL_CATEGORY)
 ENTRY_VIEWS = {
     csv_batches.ERROR: StatusView("Ошибка", "danger", 0),
     csv_batches.BUILT: StatusView("Собран", "accent", 1),
@@ -192,11 +190,8 @@ class CsvPage(TaskPage):
         titles.addWidget(self.title_label)
         titles.addWidget(self.subtitle)
         titles.addWidget(self.send_hint)
-        autosave = QLabel("Сохраняется автоматически")
-        autosave.setProperty("role", "muted")
         right_head = QHBoxLayout()
         right_head.addLayout(titles, 1)
-        right_head.addWidget(autosave, 0, Qt.AlignmentFlag.AlignTop)
         right_head.addWidget(self.sent_button, 0, Qt.AlignmentFlag.AlignTop)
         right_box.addLayout(right_head)
         right_box.addWidget(self.table, 1)
@@ -231,9 +226,7 @@ class CsvPage(TaskPage):
         table = QTableWidget(0, len(ROW_COLUMNS))
         table.verticalHeader().setVisible(False)
         table.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
-        table.setEditTriggers(
-            QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
-        )
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setShowGrid(False)
         header = table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -250,7 +243,6 @@ class CsvPage(TaskPage):
         table.setItemDelegateForColumn(COL_TITLE, EmptyCellDelegate("Нет заголовка", table))
         table.setItemDelegateForColumn(COL_KEYWORDS, EmptyCellDelegate("Нет ключевых слов", table))
         table.setItemDelegateForColumn(COL_CATEGORY, CategoryDelegate("Нет категории", table))
-        table.itemChanged.connect(self._cell_edited)
         return table
 
     # ------------------------------------------------------------------ what is shown
@@ -365,20 +357,19 @@ class CsvPage(TaskPage):
         self.pager.show_page(len(rows), ROW_PAGE_SIZE, self._page)
 
     def _set_row(self, index: int, row: sqlite3.Row) -> None:
-        locked = row["status"] == state.SUBMITTED  # a file already sent is final
         name = read_only(QTableWidgetItem(row["filename"]))
         name.setFont(mono_font())
         name.setData(FILE_PATH_ROLE, row["path"])
         name.setToolTip(row["path"])
         cells = (
             name,
-            QTableWidgetItem(row["title"]),
-            QTableWidgetItem(", ".join(json.loads(row["keywords"]))),
-            QTableWidgetItem(category_name(row["category"])),
+            read_only(QTableWidgetItem(row["title"])),
+            read_only(QTableWidgetItem(", ".join(json.loads(row["keywords"])))),
+            read_only(QTableWidgetItem(category_name(row["category"]))),
             read_only(QTableWidgetItem("")),  # the CSV leaves Releases empty
         )
         for column, cell in enumerate(cells):
-            self.table.setItem(index, column, read_only(cell) if locked else cell)
+            self.table.setItem(index, column, cell)
 
     def _go_page(self, number: int) -> None:
         self._page = number
@@ -400,44 +391,6 @@ class CsvPage(TaskPage):
             button.setEnabled(not running)
         if not running:
             self._sync_buttons(self._chosen())
-
-    # ------------------------------------------------------------------ editing
-
-    def _cell_edited(self, item: QTableWidgetItem) -> None:
-        if self._loading or item.column() not in EDITABLE_COLUMNS or not 0 <= item.row() < len(self._shown):
-            return
-        cells = [self.table.item(item.row(), column) for column in EDITABLE_COLUMNS]
-        if self._batch is None or any(cell is None for cell in cells):
-            return
-        title, keywords, category = (cell.text() for cell in cells if cell is not None)
-        filename = self._shown[item.row()]["filename"]
-        self._save(self._batch, filename, title.strip(), parse_keywords(keywords), category_code(category))
-
-    def _save(self, batch: int, filename: str, title: str, keywords: tuple[str, ...], category: str) -> None:
-        """Write the edit to the database, then rewrite the batch's CSV so the two never differ."""
-        try:
-            settings = self.ctx.prefs.build_settings(with_password=False)
-        except (ValidationError, ValueError):
-            settings = None
-
-        def work(conn, progress, should_stop):
-            saved = state.update_metadata(conn, filename, title, keywords, category)
-            if saved and settings is not None:
-                services.build_csv(conn, batch, settings)
-            return saved
-
-        try:
-            saved = self.ctx.job(work)(lambda *_: None, lambda: False)
-        except Exception as error:  # a locked or damaged database: show it, keep the edit on screen
-            self.status.setText(f"Не удалось сохранить {filename}: {error}")
-            return
-        if not saved:
-            self.status.setText(f"Не сохранено: {filename} уже отправлен, его не правят.")
-        elif settings is None:
-            self.status.setText(f"Сохранено в базе: {filename}. CSV не пересобран: проверьте настройки.")
-        else:
-            self.status.setText(f"Сохранено: {filename}")
-        QTimer.singleShot(0, self.ctx.data_changed.emit)  # not inside the table's own signal
 
     # ------------------------------------------------------------------ actions
 

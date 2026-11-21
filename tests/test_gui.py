@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSettings, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QTableWidgetSelectionRange  # noqa: E402
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QLabel, QTableWidgetSelectionRange  # noqa: E402
 
 from adobe_stock import caption, services, state  # noqa: E402
 from adobe_stock.gui.context import AppContext  # noqa: E402
@@ -1729,38 +1729,13 @@ def uploaded_csv_page(app, window, prefs):
     return csv_page, batch
 
 
-def test_csv_page_edit_is_saved_to_the_database_and_the_csv_file(app, window, prefs):
+def test_csv_page_rows_are_read_only(app, window, prefs):
     csv_page, _ = uploaded_csv_page(app, window, prefs)
-    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
 
-    csv_page.table.item(row, 1).setText("Blue sea")
+    cells = [csv_page.table.item(r, c) for r in range(2) for c in range(5)]
 
-    conn = state.open_db(prefs.db_path)
-    assert conn.execute("SELECT title FROM files WHERE filename = 'a.jpg'").fetchone()["title"] == "Blue sea"
-    written = next(prefs.csv_dir.glob("*batch*.csv")).read_text(encoding="utf-8")
-    assert "a.jpg,Blue sea" in written
-    conn.close()
-
-
-def test_csv_page_row_without_title_turns_the_file_into_an_error(app, window, prefs):
-    csv_page, _ = uploaded_csv_page(app, window, prefs)
-    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
-
-    csv_page.table.item(row, 1).setText("")
-    csv_page.refresh()
-
-    assert "1 с ошибкой" in csv_page.subtitle.text()
-
-
-def test_csv_page_submitted_rows_cannot_be_edited(app, window, prefs):
-    csv_page, batch = uploaded_csv_page(app, window, prefs)
-    conn = state.open_db(prefs.db_path)
-    services.mark_submitted(conn, batch)
-    conn.close()
-
-    csv_page.refresh()
-
-    assert not csv_page.table.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable
+    assert csv_page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
+    assert all(not cell.flags() & Qt.ItemFlag.ItemIsEditable for cell in cells)
 
 
 def test_csv_page_never_reads_the_keychain(app, window, prefs, monkeypatch):
@@ -1768,11 +1743,8 @@ def test_csv_page_never_reads_the_keychain(app, window, prefs, monkeypatch):
         prefs, "secrets", KeychainThatMustNotBeRead()
     )  # reading it makes macOS ask for a password
     csv_page, _ = uploaded_csv_page(app, window, prefs)
-    row = next(r for r in range(2) if csv_page.table.item(r, 0).text() == "a.jpg")
 
-    csv_page.table.item(row, 1).setText("Blue sea")  # an edit rewrites the CSV
-
-    assert "Сохранено" in csv_page.status.text()
+    assert "CSV собран" in csv_page.status.text()  # building the CSV must not read the keychain
 
 
 def test_csv_page_add_is_disabled_with_a_hint_when_there_is_nothing_to_add(app, window, prefs):
