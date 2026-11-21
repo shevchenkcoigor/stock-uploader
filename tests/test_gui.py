@@ -100,6 +100,7 @@ class KeychainThatMustNotBeRead(MemoryStore):
 def test_settings_have_no_save_button_and_apply_a_committed_change(app, window, prefs):
     settings_page = page(window, "Настройки")
     assert not hasattr(settings_page, "save_button")
+    assert not settings_page.cancel_button.isVisibleTo(settings_page)
 
     settings_page.user.setText("artist")
     settings_page.user.editingFinished.emit()  # leaving the field or pressing Enter

@@ -89,6 +89,9 @@ class SettingsPage(TaskPage):
         form.addRow("Тема", self.theme)
         self.form.addLayout(form)
 
+        self.cancel_button.setVisible(
+            False
+        )  # the checks cannot be interrupted, and nothing is left to cancel
         self.claude_button = self.add_action(QPushButton("Проверить Claude"))
         self.claude_button.clicked.connect(self._check_claude)
         self.sftp_button = self.add_action(QPushButton("Проверить SFTP"))
