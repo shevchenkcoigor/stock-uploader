@@ -34,6 +34,7 @@ from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
+from adobe_stock.gui.flow_layout import FlowLayout
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import chip, chip_html, drop_cell_widgets, status_cell, view_of
@@ -53,6 +54,7 @@ PREVIEW_SIDE = 240
 PANEL_WIDTH = 320
 LIST_PAGE_SIZE = 20
 TILES_PAGE_SIZE = 60
+HEAD_SPACING = 8
 BYTES_IN_MB = 1024 * 1024
 COLUMNS = ("Имя", "Заголовок", "Ключевые слова", "Категория", "Разрешение", "Размер", "Статус")
 COL_NAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RESOLUTION, COL_SIZE, COL_STATUS = range(len(COLUMNS))
@@ -140,13 +142,18 @@ class DescriptionPage(TaskPage):
 
     # ---- construction -------------------------------------------------------------------------
 
+    @staticmethod
+    def _add_group(head: FlowLayout, group: QHBoxLayout) -> None:
+        head.addChildLayout(group)
+        head.addItem(group)
+
     def _build_files_panel(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("panel")
         column = QVBoxLayout(panel)
         column.setContentsMargins(12, 12, 12, 8)
 
-        head = QHBoxLayout()
+        head = FlowLayout(spacing=HEAD_SPACING)  # wraps instead of widening the window
         heading = QLabel("Файлы")
         heading.setProperty("role", "heading")
         head.addWidget(heading)
@@ -159,10 +166,10 @@ class DescriptionPage(TaskPage):
         )
         self.run_button.clicked.connect(lambda: self._run_caption())
         head.addWidget(self.run_button)
-        self.approve_all_button = self.add_action(QPushButton("Одобрить все на проверке"))
+        self.approve_all_button = self.add_action(QPushButton("Approve"))
+        self.approve_all_button.setToolTip("Одобрить все файлы со статусом «Проверить»")
         self.approve_all_button.clicked.connect(lambda: self._approve(None))
         head.addWidget(self.approve_all_button)
-        head.addStretch(1)
 
         self.status_filter = make_combo()
         self.status_filter.addItem("Все статусы", FILTER_ALL)
@@ -183,7 +190,7 @@ class DescriptionPage(TaskPage):
             self.size_buttons[key] = button
             sizes.addWidget(button)
         self._join(sizes)
-        head.addLayout(sizes)
+        self._add_group(head, sizes)
         self.list_button = clean_button("", segment=True, compact=True)
         self.list_button.setIcon(list_icon())
         self.list_button.setToolTip("Список")
@@ -199,7 +206,7 @@ class DescriptionPage(TaskPage):
         views.addWidget(self.list_button)
         views.addWidget(self.tiles_button)
         self._join(views)
-        head.addLayout(views)
+        self._add_group(head, views)
         column.addLayout(head)
 
         self.table = QTableWidget(0, len(COLUMNS))
@@ -393,7 +400,7 @@ class DescriptionPage(TaskPage):
             return
         review = sum(1 for row in self._rows if row["status"] == state.REVIEW)
         self.approve_all_button.setVisible(review > 0)
-        self.approve_all_button.setText(f"Одобрить все на проверке ({review})")
+        self.approve_all_button.setText(f"Approve ({review})")
         self._rebuild()
 
     def _page_size(self) -> int:
