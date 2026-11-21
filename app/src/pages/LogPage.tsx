@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type EventRow, type EventsPage } from '../lib/api'
+import type { PageProps } from './pages'
 
 const EVENTS_SHOWN = 300
 const FOLLOW_INTERVAL_MS = 2000
@@ -24,7 +25,7 @@ const messageText = (row: EventRow) => (row.filename ? `${row.filename}: ${row.m
 const controlClass =
   'h-8 rounded-md border border-line-strong bg-surface px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent'
 
-export function LogPage() {
+export function LogPage({ active }: PageProps) {
   const [text, setText] = useState('')
   const [level, setLevel] = useState<string | null>(null)
   const [command, setCommand] = useState<string | null>(null)
@@ -43,10 +44,11 @@ export function LogPage() {
   }, [text, level, command])
 
   useEffect(() => {
+    if (!active) return // a hidden page does not poll
     load()
     const timer = window.setInterval(load, FOLLOW_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [load])
+  }, [active, load])
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { api, type StatusCount } from '../lib/api'
-import { SETTINGS_SAVED_EVENT } from '../lib/useSettings'
+import { api, prefsApi, type StatusCount } from '../lib/api'
+import { SCAN_DONE_EVENT } from '../lib/events'
+import { lastScanText, parseLastScan } from '../lib/format'
 import { STATUS_ORDER, STATUS_VIEWS } from '../lib/status'
+import { SETTINGS_SAVED_EVENT } from '../lib/useSettings'
 
 const EMPTY_TEXT = 'База пуста: начните со скана'
 
@@ -16,16 +18,28 @@ function summaryText(counts: StatusCount[]): string {
 
 export function StatusLine() {
   const [text, setText] = useState('')
+  const [lastScan, setLastScan] = useState('')
   useEffect(() => {
-    const load = () =>
+    const load = () => {
       api
         .statusSummary()
         .then((counts) => setText(summaryText(counts)))
         .catch((error) => setText(String(error)))
+      void prefsApi.get('last_scan', '{}').then((raw) => setLastScan(lastScanText(parseLastScan(raw), new Date())))
+    }
     load()
-    // The database may have been switched on the settings page.
+    // The database may have been switched on the settings page, and a scan changes the counts.
     window.addEventListener(SETTINGS_SAVED_EVENT, load)
-    return () => window.removeEventListener(SETTINGS_SAVED_EVENT, load)
+    window.addEventListener(SCAN_DONE_EVENT, load)
+    return () => {
+      window.removeEventListener(SETTINGS_SAVED_EVENT, load)
+      window.removeEventListener(SCAN_DONE_EVENT, load)
+    }
   }, [])
-  return <footer className="border-t border-line bg-window px-4 py-1.5 text-xs text-ink-muted">{text}</footer>
+  return (
+    <footer className="flex justify-between border-t border-line bg-window px-4 py-1.5 text-xs text-ink-muted">
+      <span>{text}</span>
+      <span>{lastScan}</span>
+    </footer>
+  )
 }

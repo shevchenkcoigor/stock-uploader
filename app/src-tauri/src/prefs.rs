@@ -80,3 +80,20 @@ pub fn db_path_override() -> Option<PathBuf> {
     let path = text(&map, "db_path", "");
     (!path.trim().is_empty()).then(|| PathBuf::from(path))
 }
+
+/// Changes some keys and keeps the rest (the whole map is written back).
+pub fn set_many(updates: &[(&str, String)]) -> AppResult<()> {
+    let mut map = load()?;
+    map.extend(updates.iter().map(|(key, value)| ((*key).to_string(), value.clone())));
+    store(&map)
+}
+
+#[tauri::command]
+pub fn get_pref(key: String, default: Option<String>) -> AppResult<String> {
+    Ok(text(&load()?, &key, default.as_deref().unwrap_or("")))
+}
+
+#[tauri::command]
+pub fn set_pref(key: String, value: String) -> AppResult<()> {
+    set_many(&[(key.as_str(), value)])
+}

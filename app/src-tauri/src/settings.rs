@@ -110,7 +110,7 @@ fn validated(dto: &SettingsDto) -> AppResult<SettingsDto> {
     })
 }
 
-fn expand_home(path: &str) -> String {
+pub fn expand_home(path: &str) -> String {
     let Some(rest) = path.strip_prefix('~') else {
         return path.to_string();
     };

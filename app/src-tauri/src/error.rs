@@ -14,6 +14,8 @@ pub enum AppError {
     Keychain(#[from] keyring::Error),
     #[error("{0}")]
     Check(String),
+    #[error("{0}")]
+    StateDb(String),
 }
 
 impl Serialize for AppError {
