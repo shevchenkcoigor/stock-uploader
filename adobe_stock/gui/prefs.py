@@ -26,18 +26,32 @@ KEYCHAIN_ACCOUNT = "sftp"
 
 
 class SecretStore(Protocol):
+    @property
+    def needs_unlock(self) -> bool:
+        """True when the next ``get`` reads the OS keychain (and macOS may ask for the Mac password)."""
+        ...
+
     def get(self) -> str: ...
 
     def set(self, value: str) -> None: ...
 
 
 class KeychainStore:
-    """The SFTP password in the OS keychain."""
+    """The SFTP password in the OS keychain, read once per run and then kept in memory."""
+
+    def __init__(self) -> None:
+        self._cached: str | None = None
+
+    @property
+    def needs_unlock(self) -> bool:
+        return self._cached is None
 
     def get(self) -> str:
-        import keyring
+        if self._cached is None:
+            import keyring
 
-        return keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) or ""
+            self._cached = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) or ""
+        return self._cached
 
     def set(self, value: str) -> None:
         import keyring
@@ -46,6 +60,7 @@ class KeychainStore:
             keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
         elif self.get():
             keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        self._cached = value
 
 
 class MemoryStore:
@@ -53,6 +68,10 @@ class MemoryStore:
 
     def __init__(self, value: str = "") -> None:
         self._value = value
+
+    @property
+    def needs_unlock(self) -> bool:
+        return False
 
     def get(self) -> str:
         return self._value

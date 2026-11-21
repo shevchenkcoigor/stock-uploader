@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -38,6 +39,10 @@ PAGE_SIZE = 20
 PROGRESS_STEPS = 1000  # resolution of the overall bar
 FILE_BAR_STEPS = 100
 THUMB_SIDE = 40
+KEYCHAIN_NOTICE = (
+    "Сейчас macOS может попросить пароль от Mac: так приложение получает сохранённый SFTP-пароль. "
+    "Выберите «Всегда разрешать»."
+)
 ROW_HEIGHT = THUMB_SIDE + 12
 STATE_VIEWS = {
     queue.FAILED: StatusView("Ошибка", "danger", 0),
@@ -240,10 +245,18 @@ class UploadPage(TaskPage):
         self.status.setText(message)
         self._fill_files()
 
+    def _announce_keychain_prompt(self) -> None:
+        """Say what the macOS password prompt is before it appears (it blocks the window)."""
+        self.write(KEYCHAIN_NOTICE)
+        self.status.setText(KEYCHAIN_NOTICE)
+        QApplication.processEvents()  # show the text now: the keychain read blocks the UI thread
+
     def _run(self) -> None:
         batch = self.batch.currentData()
         if batch is None:
             return
+        if self.ctx.prefs.secrets.needs_unlock:
+            self._announce_keychain_prompt()
         try:
             settings = self.ctx.prefs.build_settings()
         except (ValidationError, ValueError) as error:

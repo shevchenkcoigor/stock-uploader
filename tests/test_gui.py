@@ -386,6 +386,49 @@ def test_upload_without_sftp_login_explains_what_to_do_and_starts_nothing(app, w
     assert "Настройки" in text and ".env" not in text
 
 
+class LockedStore(MemoryStore):
+    """A keychain that has not been read yet."""
+
+    unlocked = False
+
+    @property
+    def needs_unlock(self) -> bool:
+        return not self.unlocked
+
+    def get(self) -> str:
+        self.unlocked = True
+        return super().get()
+
+
+def test_upload_explains_the_mac_password_prompt_before_reading_the_keychain(
+    app, window, prefs, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(prefs, "secrets", LockedStore("secret"))
+    upload_page = page(window, "Загрузка")
+    monkeypatch.setattr(upload_page.batch, "currentData", lambda: 1)
+    upload_page._run()
+    assert "пароль от Mac" in upload_page.output.toPlainText()
+    upload_page.output.clear()
+    upload_page._run()  # the keychain was read already: no second notice
+    assert "пароль от Mac" not in upload_page.output.toPlainText()
+
+
+def test_keychain_store_reads_the_keychain_once_per_run(monkeypatch):
+    import keyring
+
+    from adobe_stock.gui.prefs import KeychainStore
+
+    reads = []
+    monkeypatch.setattr(keyring, "get_password", lambda *args: reads.append(args) or "pw")
+    monkeypatch.setattr(keyring, "set_password", lambda *args: None)
+    store = KeychainStore()
+    assert store.needs_unlock
+    assert store.get() == store.get() == "pw"
+    assert len(reads) == 1 and not store.needs_unlock
+    store.set("new")
+    assert store.get() == "new" and len(reads) == 1
+
+
 def test_theme_follows_choice_and_system():
     from adobe_stock.gui import theme
 
