@@ -8,7 +8,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QSettings, Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QSettings, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QTableWidgetSelectionRange  # noqa: E402
 
 from adobe_stock import caption, services, state  # noqa: E402
@@ -38,6 +38,8 @@ def window(app, prefs):
     created = MainWindow(AppContext(prefs))
     yield created
     created.close()
+    created.deleteLater()  # a closed window stays alive; each app-wide stylesheet change repolishes it
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def page(window: MainWindow, title_part: str) -> Any:
