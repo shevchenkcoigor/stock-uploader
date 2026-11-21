@@ -1016,3 +1016,29 @@ def test_card_shows_status_chip_and_resolution_and_caption_sits_above_the_pictur
     assert panel is not None
     top_of = lambda widget: widget.mapTo(panel, widget.rect().topLeft()).y()  # noqa: E731
     assert top_of(description.card_caption_button) < top_of(description.preview)
+
+
+def test_thumbnail_size_buttons_resize_rows_and_tiles_and_are_remembered(app, window, prefs):
+    from adobe_stock.gui.description_page import THUMB_SIZES
+
+    seed_files(prefs, ["a.jpg", "b.jpg"])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    assert description.size_buttons["M"].isChecked()  # medium unless chosen otherwise
+
+    for key, (row_side, tile_side) in THUMB_SIZES.items():
+        description.size_buttons[key].click()
+        assert [button.isChecked() for button in description.size_buttons.values()] == [
+            name == key for name in THUMB_SIZES
+        ]
+        assert description.table.iconSize().width() == row_side
+        assert description.table.verticalHeader().defaultSectionSize() > row_side
+        assert description.tiles.iconSize().width() == tile_side
+        assert description.table.item(0, 0).icon().availableSizes()[0].width() >= row_side
+        assert prefs.text("thumb_size") == key
+
+    from adobe_stock.gui.context import AppContext
+
+    reopened = type(description)(AppContext(prefs))
+    assert reopened.size_buttons["L"].isChecked()  # the last choice comes back

@@ -39,8 +39,11 @@ from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import thumbnail_pixmap, tile_icon
 from adobe_stock.gui.widgets import make_combo, mono_font
 
-ROW_THUMB = 40
-TILE_THUMB = 120
+THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
+DEFAULT_THUMB_SIZE = "M"
+THUMB_SIZE_KEY = "thumb_size"
+ROW_PADDING = 8
+NAME_COLUMN_BASE = 150  # room for the checkbox and a file name; the picture comes on top of it
 PREVIEW_SIDE = 240
 PANEL_WIDTH = 320
 LIST_PAGE_SIZE = 20
@@ -150,6 +153,23 @@ class DescriptionPage(TaskPage):
         self.tiles_button.clicked.connect(lambda: self._set_view(tiles=True))
         head.addWidget(self.list_button)
         head.addWidget(self.tiles_button)
+        saved_size = self.ctx.prefs.text(THUMB_SIZE_KEY, DEFAULT_THUMB_SIZE)
+        self._thumb_size = saved_size if saved_size in THUMB_SIZES else DEFAULT_THUMB_SIZE
+        self.size_buttons: dict[str, QPushButton] = {}
+        sizes = QHBoxLayout()
+        sizes.setSpacing(-1)  # the buttons share their borders: one joined group
+        for number, key in enumerate(THUMB_SIZES):
+            button = clean_button(key, segment=True, compact=True)
+            button.setProperty(
+                "joint", "first" if number == 0 else "last" if number == len(THUMB_SIZES) - 1 else "mid"
+            )
+            button.setCheckable(True)
+            button.setChecked(key == self._thumb_size)
+            button.setToolTip({"S": "Мелкие превью", "M": "Средние превью", "L": "Крупные превью"}[key])
+            button.clicked.connect(lambda _checked=False, size=key: self._set_thumb_size(size))
+            self.size_buttons[key] = button
+            sizes.addWidget(button)
+        head.addLayout(sizes)
         column.addLayout(head)
 
         self.table = QTableWidget(0, len(COLUMNS))
@@ -162,9 +182,9 @@ class DescriptionPage(TaskPage):
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
         )
-        self.table.setIconSize(QSize(ROW_THUMB, ROW_THUMB))
+        self.table.setIconSize(QSize(self._row_thumb, self._row_thumb))
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(ROW_THUMB + 8)
+        self.table.verticalHeader().setDefaultSectionSize(self._row_thumb + ROW_PADDING)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(
             COL_TITLE, self.table.horizontalHeader().ResizeMode.Stretch
@@ -172,7 +192,7 @@ class DescriptionPage(TaskPage):
         self.table.horizontalHeader().setSectionResizeMode(
             COL_KEYWORDS, self.table.horizontalHeader().ResizeMode.Stretch
         )
-        self.table.setColumnWidth(COL_NAME, 190)
+        self._fit_name_column()
         self.table.setColumnWidth(COL_CATEGORY, 150)
         self.table.setColumnWidth(COL_SIZE, 80)
         self.table.setColumnWidth(COL_STATUS, 110)
@@ -196,8 +216,7 @@ class DescriptionPage(TaskPage):
         self.tiles.setViewMode(QListView.ViewMode.IconMode)
         self.tiles.setResizeMode(QListView.ResizeMode.Adjust)
         self.tiles.setMovement(QListView.Movement.Static)
-        self.tiles.setIconSize(QSize(TILE_THUMB, TILE_THUMB))
-        self.tiles.setGridSize(QSize(TILE_THUMB + 24, TILE_THUMB + 36))
+        self._apply_tile_size()
         self.tiles.setWordWrap(True)
         self.tiles.setSpacing(4)
         self.tiles.itemSelectionChanged.connect(self._tile_selected)
@@ -389,7 +408,7 @@ class DescriptionPage(TaskPage):
 
     def _set_table_row(self, index: int, row: sqlite3.Row) -> None:
         name = QTableWidgetItem(row["filename"])
-        name.setIcon(tile_icon(row["path"], ROW_THUMB))
+        name.setIcon(tile_icon(row["path"], self._row_thumb))
         name.setToolTip(row["path"])
         name.setData(FILE_PATH_ROLE, row["path"])
         name.setFont(mono_font())
@@ -413,7 +432,7 @@ class DescriptionPage(TaskPage):
     def _add_tile(self, row: sqlite3.Row) -> None:
         view = view_of(row["status"])
         item = QListWidgetItem(
-            tile_icon(row["path"], TILE_THUMB, view.token), f"{row['filename']}\n{view.label}"
+            tile_icon(row["path"], self._tile_thumb, view.token), f"{row['filename']}\n{view.label}"
         )
         item.setData(Qt.ItemDataRole.UserRole, row["filename"])
         item.setData(FILE_PATH_ROLE, row["path"])
@@ -709,6 +728,32 @@ class DescriptionPage(TaskPage):
         QTimer.singleShot(0, self.ctx.data_changed.emit)  # not inside the table's own signal
 
     # ---- long operations ----------------------------------------------------------------------
+
+    @property
+    def _row_thumb(self) -> int:
+        return THUMB_SIZES[self._thumb_size][0]
+
+    @property
+    def _tile_thumb(self) -> int:
+        return THUMB_SIZES[self._thumb_size][1]
+
+    def _fit_name_column(self) -> None:
+        self.table.setColumnWidth(COL_NAME, NAME_COLUMN_BASE + self._row_thumb)
+
+    def _apply_tile_size(self) -> None:
+        self.tiles.setIconSize(QSize(self._tile_thumb, self._tile_thumb))
+        self.tiles.setGridSize(QSize(self._tile_thumb + 24, self._tile_thumb + 36))
+
+    def _set_thumb_size(self, size: str) -> None:
+        self._thumb_size = size
+        self.ctx.prefs.set_text(THUMB_SIZE_KEY, size)
+        for key, button in self.size_buttons.items():
+            button.setChecked(key == size)
+        self.table.setIconSize(QSize(self._row_thumb, self._row_thumb))
+        self.table.verticalHeader().setDefaultSectionSize(self._row_thumb + ROW_PADDING)
+        self._apply_tile_size()
+        self._fit_name_column()
+        self._fill_views()
 
     def _make_model_combo(self, prefix: str = "") -> QComboBox:
         """A model picker; the one in the file list and the one in the card always show the same model."""

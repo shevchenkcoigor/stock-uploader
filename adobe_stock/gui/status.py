@@ -64,7 +64,7 @@ def status_cell(status: str) -> QWidget:
     holder = QWidget()
     inner = QHBoxLayout(holder)
     inner.setContentsMargins(8, 4, 8, 4)
-    inner.addWidget(chip(status))
+    inner.addWidget(chip(status), 0, Qt.AlignmentFlag.AlignVCenter)  # not stretched over a tall row
     inner.addStretch(1)
     return holder
 

@@ -73,6 +73,10 @@ QLabel[role="preview"] {{ background: {surface_sunken}; border: 1px solid {borde
 QFrame#panel {{ background: {surface}; border: 1px solid {border}; border-radius: 6px; }}
 QFrame#panel QLabel {{ background: transparent; }}
 QPushButton[segment="true"] {{ height: 28px; min-width: 56px; padding: 0 8px; border-radius: 4px; }}
+QPushButton[joint="first"] {{ border-top-right-radius: 0; border-bottom-right-radius: 0; }}
+QPushButton[joint="mid"] {{ border-radius: 0; }}
+QPushButton[joint="last"] {{ border-top-left-radius: 0; border-bottom-left-radius: 0; }}
+QPushButton[compact="true"] {{ min-width: 32px; }}
 QPushButton[segment="true"]:checked {{ background: {accent_soft}; border-color: {accent}; font-weight: 600; }}
 QPushButton[page="true"] {{ height: 28px; min-width: 28px; padding: 0 6px; }}
 QPushButton[page="true"]:checked {{ background: {accent_soft}; border-color: {accent}; font-weight: 600; }}
