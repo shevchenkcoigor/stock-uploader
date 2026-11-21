@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+from adobe_stock.gui.csv_page import COL_ACTION, COL_CREATED, COL_UPDATED
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
@@ -1852,8 +1854,20 @@ def test_csv_page_allows_sending_a_fully_uploaded_batch(app, window, prefs):
     assert csv_page.sent_button.isEnabled() and csv_page.send_hint.isHidden()
 
 
+def test_csv_list_shows_dates_and_sorts_by_update_newest_first(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+
+    csv_page.refresh()
+
+    assert (csv_page.list_sorter.field, csv_page.list_sorter.descending) == ("updated", True)
+    titles = [csv_page.files.horizontalHeaderItem(c).text() for c in range(csv_page.files.columnCount())]
+    assert titles[COL_CREATED].startswith("Создан") and titles[COL_UPDATED].startswith("Обновлён")
+    assert csv_page.files.item(0, COL_CREATED).text() != "—"
+    assert csv_page.files.item(0, COL_UPDATED).text() != "—"
+
+
 def rebuild_button(csv_page, row: int):
-    return csv_page.files.cellWidget(row, 4).findChild(type(csv_page.add_button))
+    return csv_page.files.cellWidget(row, COL_ACTION).findChild(type(csv_page.add_button))
 
 
 def test_csv_page_has_no_bottom_buttons_and_a_rebuild_button_per_csv(app, window, prefs):

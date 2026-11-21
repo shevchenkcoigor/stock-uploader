@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from datetime import datetime
 
 from pydantic import ValidationError
 from PySide6.QtCore import QPoint, Qt, QTimer
@@ -35,14 +36,16 @@ from adobe_stock.gui.widgets import mono_font
 from adobe_stock.metadata_csv import HEADERS
 from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL
 
-FILES_WIDTH = 560
+FILES_WIDTH = 780
 ACTION_COLUMN_WIDTH = 120
 BATCH_COLUMN_WIDTH = 100  # the batch name is cut with «…»; the full one is in the tooltip
 ROW_PAGE_SIZE = 20
 ROW_HEIGHT = 40
-LIST_COLUMNS = ("Имя", "Батч", "Строк", "Статус", "")  # the last one holds the «Пересобрать» button
-LIST_FIELDS = ("name", "batch", "rows", "status", None)
-COL_NAME, COL_BATCH, COL_ROWS, COL_STATE, COL_ACTION = range(5)
+LIST_COLUMNS = ("Имя", "Батч", "Строк", "Создан", "Обновлён", "Статус", "")  # the last: «Пересобрать»
+LIST_FIELDS = ("name", "batch", "rows", "created", "updated", "status", None)
+COL_NAME, COL_BATCH, COL_ROWS, COL_CREATED, COL_UPDATED, COL_STATE, COL_ACTION = range(7)
+DATE_COLUMN_WIDTH = 110
+DATE_FORMAT = "%d.%m.%Y %H:%M"
 ROW_COLUMNS = HEADERS  # Adobe's own names: Filename, Title, Keywords, Category, Releases
 ROW_FIELDS = ("name", "title", "keywords", "category", None)  # Releases cannot be sorted
 COL_FILENAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RELEASES = range(5)
@@ -105,7 +108,14 @@ def entry_sort_key(field: str):
         return lambda entry: entry.batch_id
     if field == "rows":
         return lambda entry: entry.rows
+    if field in ("created", "updated"):
+        return lambda entry: getattr(entry, field)
     return lambda entry: (ENTRY_VIEWS[entry.state].rank, entry.name.lower())
+
+
+def date_text(moment: float) -> str:
+    """A CSV's creation / update time for the list; a dash when the file is missing."""
+    return datetime.fromtimestamp(moment).strftime(DATE_FORMAT) if moment else "—"
 
 
 def panel() -> tuple[QFrame, QVBoxLayout]:
@@ -162,8 +172,8 @@ class CsvPage(TaskPage):
             self.files,
             LIST_COLUMNS,
             LIST_FIELDS,
-            field="status",
-            descending=False,
+            field="updated",
+            descending=True,  # the most recently updated CSV first
             on_change=self._fill_files,
         )
         self.row_sorter = HeaderSort(
@@ -220,6 +230,8 @@ class CsvPage(TaskPage):
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(COL_BATCH, BATCH_COLUMN_WIDTH)
         table.setColumnWidth(COL_ROWS, 60)
+        table.setColumnWidth(COL_CREATED, DATE_COLUMN_WIDTH)
+        table.setColumnWidth(COL_UPDATED, DATE_COLUMN_WIDTH)
         table.setColumnWidth(COL_STATE, 130)
         table.setColumnWidth(COL_ACTION, ACTION_COLUMN_WIDTH)
         table.cellDoubleClicked.connect(self._file_double_clicked)
@@ -292,6 +304,8 @@ class CsvPage(TaskPage):
             )
             self.files.setItem(index, COL_BATCH, batch)
             self.files.setItem(index, COL_ROWS, read_only(QTableWidgetItem(str(entry.rows))))
+            self.files.setItem(index, COL_CREATED, read_only(QTableWidgetItem(date_text(entry.created))))
+            self.files.setItem(index, COL_UPDATED, read_only(QTableWidgetItem(date_text(entry.updated))))
             self.files.setCellWidget(index, COL_STATE, view_cell(ENTRY_VIEWS[entry.state]))
             if entry.state != csv_batches.SENT:  # a sent batch has nothing left to rebuild
                 self.files.setCellWidget(index, COL_ACTION, self._rebuild_cell(entry))

@@ -37,6 +37,20 @@ def test_built_csv_is_listed_as_built_with_its_rows(tmp_path):
     assert sorted(r["filename"] for r in csv_batches.csv_rows(conn, batch)) == ["a.jpg", "b.jpg"]
 
 
+def test_entry_carries_the_csv_file_times(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    services.build_csv(conn, batch, settings(tmp_path))
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert 0 < entry.created <= entry.updated
+
+
+def test_missing_csv_file_has_no_times(tmp_path):
+    assert csv_batches.file_times(tmp_path / "nope.csv") == (0.0, 0.0)
+
+
 def test_row_without_title_makes_the_csv_an_error(tmp_path):
     conn = uploaded(tmp_path, ["a.jpg", "b.jpg"])
     batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]

@@ -26,6 +26,8 @@ class CsvEntry:
     folder: str = ""
     part: int = 0
     waiting: tuple[tuple[str, int], ...] = ()  # (status, files) of batch files not on SFTP yet
+    created: float = 0.0  # when the CSV file appeared on disk (epoch seconds); 0 when it is missing
+    updated: float = 0.0  # when it was last written; 0 when it is missing
 
     @property
     def batch_name(self) -> str:
@@ -98,7 +100,17 @@ def _entry(batch_id: int, path: Path, rows: list[sqlite3.Row], ai_label: str) ->
         kind = ERROR
     else:
         kind = BUILT
-    return CsvEntry(batch_id, path.name, len(rows), bad, kind, str(path))
+    created, updated = file_times(path)
+    return CsvEntry(batch_id, path.name, len(rows), bad, kind, str(path), created=created, updated=updated)
+
+
+def file_times(path: Path) -> tuple[float, float]:
+    """(created, updated) of a file in epoch seconds; (0, 0) when it cannot be read."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return 0.0, 0.0
+    return getattr(stat, "st_birthtime", stat.st_ctime), stat.st_mtime
 
 
 def batches_without_csv(conn: sqlite3.Connection) -> list[sqlite3.Row]:
