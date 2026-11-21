@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from itertools import cycle
 from pathlib import Path
 
-from PIL import Image, ImageCms, ImageDraw, ImageEnhance
+from PIL import Image, ImageCms, ImageDraw, ImageEnhance, ImageOps
 from pydantic import SecretStr
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,10 +119,10 @@ def write_invalid(source: Path, folder: Path, valid: list[Path]) -> None:
             day = folder / DAYS[number % len(DAYS)]
             step = number % SIZE_STEPS  # stays under 4 MP however many files there are
             size = (TINY_SIZE[0] + step * 40, TINY_SIZE[1] + step * 25)
-            small.resize(size).save(day / f"icon_{number:02}.jpg", "JPEG")
+            ImageOps.contain(small, size).save(day / f"icon_{number:02}.jpg", "JPEG")  # keeps the proportions
         for number in range(FAKE_PNG_COUNT):  # a PNG with a .jpg name
             day = folder / DAYS[number % len(DAYS)]
-            small.resize(TINY_SIZE).save(day / f"screenshot_{number:02}.jpg", "PNG")
+            ImageOps.contain(small, TINY_SIZE).save(day / f"screenshot_{number:02}.jpg", "PNG")
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes()  # anything but sRGB
     for number in range(OTHER_PROFILE_COUNT):
         day = folder / DAYS[number % len(DAYS)]
