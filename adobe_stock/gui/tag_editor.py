@@ -17,8 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 from adobe_stock.gui.flow_layout import FlowLayout
+from adobe_stock.gui.widgets import ElidedLabel
 
 REMOVE_GLYPH = "×"
+TAG_MAX_WIDTH = 200  # a longer keyword is cut with "…" rather than widening the card
 
 
 def parse_keywords(text: str) -> tuple[str, ...]:
@@ -31,7 +33,7 @@ def parse_keywords(text: str) -> tuple[str, ...]:
     return tuple(seen)
 
 
-class TagLabel(QLabel):
+class TagLabel(ElidedLabel):
     """The text of a chip; a double click asks to edit it."""
 
     edit_requested = Signal()
@@ -52,8 +54,8 @@ class TagChip(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(10, 0, 4, 0)
         row.setSpacing(2)
-        self._label = TagLabel(tag)
-        self._label.setToolTip("Двойной клик: изменить")
+        self._label = TagLabel(tag, TAG_MAX_WIDTH)
+        self._label.setToolTip(f"{tag}\nДвойной клик: изменить")
         self._label.edit_requested.connect(self._start_editing)
         self._remove = QToolButton()
         self._remove.setObjectName("tag-remove")

@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSettings, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QTableWidgetSelectionRange  # noqa: E402
 
 from adobe_stock import caption, services, state  # noqa: E402
 from adobe_stock.gui.context import AppContext  # noqa: E402
@@ -1101,3 +1101,52 @@ def test_resolution_column_shows_pixels_and_sorts_by_them(app, window, prefs, tm
     assert [description.table.item(r, 0).text() for r in range(3)] == ["small.jpg", "mid.jpg", "big.jpg"]
     description.sorter.click(4)
     assert [description.table.item(r, 0).text() for r in range(3)] == ["big.jpg", "mid.jpg", "small.jpg"]
+
+
+def test_long_file_names_and_keywords_do_not_widen_the_window(app, window, prefs):
+    from PySide6.QtWidgets import QWidget
+
+    from adobe_stock.gui.widgets import ElidedLabel
+
+    long_name = "a_really_long_file_name_without_any_spaces_or_breaks_" * 4 + ".jpg"
+    long_tag = "averyveryverylongkeywordwithoutspaces" * 3
+    conn = state.open_db(prefs.db_path)
+    conn.execute(
+        "INSERT INTO files (path, filename, sha256, size, status, updated_at, title, keywords) "
+        "VALUES (?, ?, 'x', 1, 'pending', 'now', 'T', ?)",
+        (f"/x/{long_name}", long_name, json.dumps([long_tag, "short"])),
+    )
+    conn.commit()
+    window.nav.setCurrentRow(1)
+    window.show()
+    app.processEvents()
+    description = page(window, "Описание")
+    description.refresh()
+    before = window.minimumSizeHint().width()
+    description.table.selectRow(0)
+    app.processEvents()
+
+    panel = description.preview.parentWidget()
+    assert panel is not None
+    too_wide = [
+        type(child).__name__
+        for child in panel.findChildren(QWidget)
+        if not child.isHidden() and child.minimumSizeHint().width() > panel.width()
+    ]
+    assert too_wide == []  # nothing in the card insists on being wider than the card
+    assert window.minimumSizeHint().width() == before
+
+    assert description.name_label.text() == long_name  # the full name is kept (and in the tooltip) ...
+    assert isinstance(description.name_label, ElidedLabel)
+    assert "…" in QLabel.text(description.name_label)  # ... while the shown text is cut
+
+
+def test_elided_label_keeps_the_full_text_and_never_forces_its_width(app):
+    from adobe_stock.gui.widgets import ElidedLabel
+
+    label = ElidedLabel("x" * 300, max_width=120)
+    assert label.text() == "x" * 300
+    assert label.minimumSizeHint().width() == 0
+    assert label.sizeHint().width() <= 120
+    label.resize(80, 20)
+    assert QLabel.text(label).endswith("x") and "…" in QLabel.text(label)

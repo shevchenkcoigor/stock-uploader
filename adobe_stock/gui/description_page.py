@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -38,7 +39,7 @@ from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import image_size, thumbnail_pixmap, tile_icon
 from adobe_stock.gui.view_icons import grid_icon, list_icon
-from adobe_stock.gui.widgets import make_combo, mono_font
+from adobe_stock.gui.widgets import ElidedLabel, make_combo, mono_font
 
 THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
 DEFAULT_THUMB_SIZE = "M"
@@ -296,9 +297,8 @@ class DescriptionPage(TaskPage):
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setFixedHeight(PREVIEW_SIDE * 3 // 4)
         column.addWidget(self.preview)
-        self.name_label = QLabel("")
+        self.name_label = ElidedLabel("")  # a long file name is cut, never widening the card
         self.name_label.setProperty("role", "path")
-        self.name_label.setWordWrap(True)
         column.addWidget(self.name_label)
         self.info_label = QLabel("")
         self.info_label.setProperty("role", "muted")
@@ -306,6 +306,7 @@ class DescriptionPage(TaskPage):
         self.reason_label = QLabel("")
         self.reason_label.setProperty("role", "warn")
         self.reason_label.setWordWrap(True)
+        self.reason_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         column.addWidget(self.reason_label)
 
         column.addWidget(self._field_label("Заголовок"))
@@ -680,6 +681,7 @@ class DescriptionPage(TaskPage):
         else:
             self.preview.setPixmap(pixmap)
         self.name_label.setText(row["filename"])
+        self.name_label.setToolTip(row["filename"])
         self.status_chip.setText(chip_html(row["status"]))
         self.status_chip.setVisible(True)
         self.info_label.setText(f"{format_size(row['size'])} · {resolution_text(row['path'])}".rstrip(" ·"))
