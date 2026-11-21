@@ -24,7 +24,7 @@ from adobe_stock.gui import upload_queue as queue
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import format_size
 from adobe_stock.gui.header_sort import HeaderSort
-from adobe_stock.gui.status import StatusView, drop_cell_widgets, view_cell
+from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import tile_icon
 from adobe_stock.gui.widgets import make_combo, mono_font
@@ -135,10 +135,15 @@ class UploadPage(TaskPage):
 
     def refresh(self) -> None:
         rows = self.ctx.read(state.pending_batches)
+        statuses = self.ctx.read(state.batch_status_counts)
         self.batch.blockSignals(True)
         self.batch.clear()
         for row in rows:
-            label = f"Батч {row['batch_id']}: {row['folder']}, часть {row['part']} — {row['n']} файлов"
+            status = batch_status_text(statuses.get(row["batch_id"], ()))
+            label = (
+                f"Батч {row['batch_id']}: {row['folder']}, часть {row['part']} — {row['n']} файлов, "
+                f"статус: {status}"
+            )
             self.batch.addItem(label, row["batch_id"])
         if rows:
             self.batch.setCurrentIndex(self.batch.count() - 1)  # the last pending batch by default

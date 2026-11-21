@@ -1790,3 +1790,30 @@ def test_csv_page_says_when_the_csv_file_is_gone(app, window, prefs):
     csv_page._file_double_clicked(0, 0)
 
     assert "Файл не найден" in csv_page.status.text()
+
+
+def test_batch_status_text_is_one_word_or_the_counts():
+    from adobe_stock.gui.status import batch_status_text
+
+    assert batch_status_text(((state.UPLOADED, 3),)) == "На SFTP"
+    assert batch_status_text(((state.UPLOADED, 1), (state.PENDING, 2))) == "Описан: 2, На SFTP: 1"
+    assert batch_status_text(()) == "—"
+
+
+def test_csv_list_tooltip_shows_the_batch_status(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+
+    assert "Статус батча: На SFTP" in csv_page.files.item(0, 1).toolTip()
+
+
+def test_upload_batch_list_shows_the_batch_status(app, window, prefs):
+    conn = state.open_db(prefs.db_path)
+    folder = make_folder(Path(prefs.db_path).parent, "f1", ["a.jpg", "b.jpg", "c.jpg"])
+    services.scan(conn, folder.resolve(), services.find_images(folder), None, 1000)
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])  # one of three is on SFTP
+    conn.close()
+    upload = page(window, "Загрузка")
+
+    upload.refresh()
+
+    assert "статус: Описан: 2, На SFTP: 1" in upload.batch.itemText(0)
