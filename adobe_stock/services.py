@@ -9,7 +9,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -177,6 +177,7 @@ def _store_results(
     errors: list[str],
     flagged: list[str],
     redo: bool = False,
+    ai_label: str = "",
 ) -> int:
     stored = 0
     for result in results:
@@ -195,7 +196,7 @@ def _store_results(
         state.set_metadata(
             conn,
             result.path,
-            result.title,
+            with_ai_label(result.title, ai_label),
             result.keywords,
             result.category,
             result.people_visible,
@@ -221,12 +222,14 @@ def caption_files(
     batch_size: int = DEFAULT_BATCH_SIZE,
     names: list[str] | None = None,
     redo: bool = False,
+    ai_label: str = "",
     on_progress: ProgressCallback = _ignore_progress,
     should_stop: StopCheck = _never,
 ) -> CaptionReport:
     """Generate titles and keywords for files that have none (only `names` if given), then batch them.
 
     With `redo` the described files among `names` are captioned again and their text is replaced.
+    `ai_label` is appended to every new title (see `with_ai_label`); empty leaves titles as Claude wrote them.
     """
     todo = state.files_needing_metadata(conn, limit, names, redo=redo)
     if not todo:
@@ -253,7 +256,7 @@ def caption_files(
                     state.log_event(conn, "caption", str(error), "error")
                 else:
                     failed_calls = 0
-                    captioned += _store_results(conn, results, errors, flagged, redo)
+                    captioned += _store_results(conn, results, errors, flagged, redo, ai_label)
                 done += len(group)
                 on_progress(done, len(todo), f"{done} of {len(todo)} files")
             if failed_calls >= MAX_CONSECUTIVE_CALL_FAILURES:
@@ -284,6 +287,13 @@ def approve(conn: sqlite3.Connection, names: list[str] | None, batch_size: int) 
     scope = "all" if names is None else ", ".join(names)
     state.log_event(conn, "approve", f"approved {count} files ({scope}), new batches {new_batches}")
     return ApproveReport(count, new_batches)
+
+
+def label_titles(conn: sqlite3.Connection, label: str) -> int:
+    """Append `label` to every stored title that does not end with it yet; returns how many changed."""
+    count = state.relabel_titles(conn, lambda title: with_ai_label(title, label))
+    state.log_event(conn, "label-titles", f"added the label {label!r} to {count} titles")
+    return count
 
 
 def set_status(conn: sqlite3.Connection, names: list[str], status: str, batch_size: int) -> ApproveReport:
@@ -439,7 +449,6 @@ def build_csv(
     items = state.batch_items(conn, batch)
     if not items:
         return CsvReport(batch, 0)
-    items = [replace(item, title=with_ai_label(item.title, settings.ai_title_label)) for item in items]
     # A batch keeps one CSV: reuse (overwrite) the path recorded on its first run.
     target = (
         output or state.recorded_csv_path(conn, batch) or new_csv_path(csv_dir or settings.csv_dir, batch)

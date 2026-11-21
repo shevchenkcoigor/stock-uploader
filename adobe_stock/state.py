@@ -383,6 +383,21 @@ def update_metadata(
     return changed > 0
 
 
+def relabel_titles(conn: sqlite3.Connection, relabel: Callable[[str], str]) -> int:
+    """Replace every non-empty title by `relabel(title)` where that changes it; returns how many changed."""
+    changed = 0
+    with conn:
+        for row in conn.execute("SELECT id, title FROM files WHERE title != ''").fetchall():
+            title = relabel(row["title"])
+            if title == row["title"]:
+                continue
+            conn.execute(
+                "UPDATE files SET title = ?, updated_at = ? WHERE id = ?", (title, _now(), row["id"])
+            )
+            changed += 1
+    return changed
+
+
 def bulk_edit(
     conn: sqlite3.Connection, filenames: list[str], tag: str = "", category: str | None = None
 ) -> int:

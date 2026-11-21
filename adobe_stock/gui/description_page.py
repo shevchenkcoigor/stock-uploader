@@ -979,6 +979,8 @@ class DescriptionPage(TaskPage):
         if described and not self._confirm_overwrite(described):
             return
 
+        ai_label = self.ctx.prefs.build_settings(with_password=False).ai_title_label
+
         def work(conn, progress, should_stop):
             return services.caption_files(
                 conn,
@@ -988,6 +990,7 @@ class DescriptionPage(TaskPage):
                 batch_size=batch_size,
                 names=targets,
                 redo=redo,
+                ai_label=ai_label,
                 on_progress=progress,
                 should_stop=should_stop,
             )

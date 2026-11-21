@@ -303,7 +303,7 @@ def test_title_that_is_only_ai_wording_is_reported(tmp_path, monkeypatch):
     assert result.error == "empty title or keywords"
 
 
-def test_csv_titles_end_with_the_label_and_the_stored_title_stays_clean(tmp_path, monkeypatch):
+def test_caption_stores_titles_with_the_label_and_the_csv_keeps_them_as_they_are(tmp_path, monkeypatch):
     import csv as csv_module
 
     db = tmp_path / "s.db"
@@ -311,18 +311,26 @@ def test_csv_titles_end_with_the_label_and_the_stored_title_stays_clean(tmp_path
     monkeypatch.setattr(caption, "run_claude", fake_claude_ok)
     run(db, "caption")
     conn = state.open_db(db)
+    stored = conn.execute("SELECT title FROM files").fetchone()["title"]
+    assert stored.startswith("A title") and stored.endswith(" Generative AI")
     for path, _ in state.pending_files(conn):
         state.mark_uploaded(conn, path)
 
     out = tmp_path / "out.csv"
     assert run(db, "csv", "1", "--output", str(out)) == 0
     title = next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"]
-    assert title.startswith("A title") and title.endswith(" Generative AI")
-    assert conn.execute("SELECT title FROM files").fetchone()["title"].startswith("A title")
+    assert title == stored
+    assert not title.endswith("Generative AI Generative AI")
 
+
+def test_caption_without_a_label_leaves_the_title_alone(tmp_path, monkeypatch):
+    db = tmp_path / "s.db"
+    run(db, "scan", str(make_unlabelled_folder(tmp_path, ["a.jpg"])))
+    monkeypatch.setattr(caption, "run_claude", fake_claude_ok)
     monkeypatch.setenv("ADOBE_AI_TITLE_LABEL", "")
-    assert run(db, "csv", "1", "--output", str(out)) == 0
-    assert not next(csv_module.DictReader(out.open(encoding="utf-8")))["Title"].endswith("AI")
+    run(db, "caption")
+    stored = state.open_db(db).execute("SELECT title FROM files").fetchone()["title"]
+    assert not stored.endswith("AI")
 
 
 def test_clean_keywords_splits_commas_and_drops_numbers_and_file_info():

@@ -19,7 +19,7 @@ from adobe_stock.settings import load_settings
 DEFAULT_DB = Path("state.db")
 DEFAULT_IMAGES_DIR = Path("images")
 MAX_INVALID_SHOWN = 30
-MUTATING_COMMANDS = frozenset({"scan", "caption", "approve", "upload", "csv", "submitted"})
+MUTATING_COMMANDS = frozenset({"scan", "caption", "approve", "label-titles", "upload", "csv", "submitted"})
 MAX_ERRORS_SHOWN = 20
 
 _connections: list[sqlite3.Connection] = []
@@ -87,6 +87,7 @@ def cmd_caption(args: argparse.Namespace) -> int:
         per_call=args.per_call,
         workers=args.workers,
         batch_size=args.batch_size,
+        ai_label=load_settings().ai_title_label,
     )
     if report.total == 0:
         print("nothing to caption")
@@ -139,6 +140,17 @@ def cmd_approve(args: argparse.Namespace) -> int:
     conn = open_state(args.db)
     report = services.approve(conn, None if args.all else args.names, args.batch_size)
     print(f"approved {report.count} files, new batches {report.new_batches}")
+    return 0
+
+
+def cmd_label_titles(args: argparse.Namespace) -> int:
+    """Add the title label to stored titles that lack it."""
+    label = args.label if args.label is not None else load_settings().ai_title_label
+    if not label.strip():
+        print("no label given and the setting is empty")
+        return 2
+    count = services.label_titles(open_state(args.db), label)
+    print(f"added {label!r} to {count} titles")
     return 0
 
 
@@ -314,6 +326,12 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--all", action="store_true", help="approve every file under review")
     approve.add_argument("--batch-size", type=_batch_size, default=services.DEFAULT_BATCH_SIZE)
     approve.set_defaults(func=cmd_approve)
+
+    label_cmd = sub.add_parser(
+        "label-titles", help="add the title label (default: the setting) to stored titles that lack it"
+    )
+    label_cmd.add_argument("label", nargs="?", help='label text, e.g. "Generative AI"')
+    label_cmd.set_defaults(func=cmd_label_titles)
 
     log = sub.add_parser("log", help="show the history of scans, captions, uploads and other actions")
     log.add_argument("--limit", type=int, default=50, help="newest N events (default 50)")
