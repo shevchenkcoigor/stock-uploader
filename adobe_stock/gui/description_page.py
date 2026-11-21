@@ -120,7 +120,7 @@ class DescriptionPage(TaskPage):
 
         self.status_filter = make_combo()
         self.status_filter.addItem("Все статусы", FILTER_ALL)
-        for key in (state.REVIEW, state.NEEDS_METADATA, state.PENDING):
+        for key in (state.NEEDS_METADATA, state.PENDING):
             self.status_filter.addItem(view_of(key).label, key)
         self.status_filter.currentIndexChanged.connect(self._filters_changed)
         head.addWidget(self.status_filter)

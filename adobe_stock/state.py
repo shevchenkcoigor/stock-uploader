@@ -314,11 +314,13 @@ def all_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-EDITABLE_STATUSES = (NEEDS_METADATA, PENDING, REVIEW)
+EDITABLE_STATUSES = (NEEDS_METADATA, PENDING)
 
 
 def files_to_describe(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Files a person may still describe: new, described or held for review, and in no batch.
+    """Files a person may still describe: new or described, and in no batch.
+
+    Files flagged for review and invalid ones are not for describing.
 
     A file in a batch is planned, being uploaded or already sent, so it is not described again.
     """

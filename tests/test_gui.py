@@ -111,13 +111,12 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     assert "famous logo" in description.output.toPlainText()
 
     description.refresh()
-    # the captioned file got a batch at once, so it left the list; only the held one remains to decide on
-    assert description.table.rowCount() == 1
-    assert cell_status(description.table, 0) == "Проверить"
-    description._approve([description.table.item(0, 0).text()])
+    # the captioned file got a batch at once and the flagged one is not for describing: nothing is listed
+    assert description.table.rowCount() == 0
+    description._approve(None)
     finish(app, description)
     description.refresh()
-    assert description.table.rowCount() == 0  # approved: batched too
+    assert description.table.rowCount() == 0
     conn = state.open_db(prefs.db_path)
     assert {row["status"] for row in conn.execute("SELECT status FROM files")} == {"pending"}
     conn.close()
@@ -674,11 +673,10 @@ def test_only_new_or_described_files_outside_any_batch_are_listed_for_describing
     assert [row["filename"] for row in state.files_to_describe(conn)] == [
         "new.jpg",
         "described.jpg",
-        "held.jpg",
     ]
 
     assert state.update_metadata(conn, "new.jpg", "T", ("a",), "") is True
-    for name in ("planned.jpg", "sending.jpg", "sent.jpg", "bad.jpg"):  # never described again
+    for name in ("held.jpg", "planned.jpg", "sending.jpg", "sent.jpg", "bad.jpg"):  # never described again
         assert state.update_metadata(conn, name, "Other", ("b",), "") is False
     assert conn.execute("SELECT title FROM files WHERE filename = 'sent.jpg'").fetchone()[0] == ""
 
