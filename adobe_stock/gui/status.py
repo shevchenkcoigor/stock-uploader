@@ -25,8 +25,8 @@ STATUS_VIEWS = {
     state.REVIEW: StatusView("Проверить", "warning", 1),
     state.NEEDS_METADATA: StatusView("Новый", "ink-muted", 2),
     state.PENDING: StatusView("Описан", "accent", 3),
-    state.UPLOADED: StatusView("Загружен", "success", 4),
-    state.SUBMITTED: StatusView("Отправлен", "success", 5),
+    state.UPLOADED: StatusView("На SFTP", "info", 4),
+    state.SUBMITTED: StatusView("Отправлен в Adobe", "success", 5),
 }
 UNKNOWN_VIEW = StatusView("—", "ink-muted", 99)
 

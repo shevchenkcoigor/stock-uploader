@@ -134,7 +134,7 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     text = csv_page.output.toPlainText()
     assert "CSV:" in text and "all 2" not in text and "Created using generative AI tools" in text
     assert (tmp_path / "csv_out").exists() and list((tmp_path / "csv_out").glob("*.csv"))
-    assert "Загружен: 2" in window.summary.text()
+    assert "На SFTP: 2" in window.summary.text()
 
 
 def test_upload_page_reports_a_connection_error(app, window, prefs, tmp_path, monkeypatch):

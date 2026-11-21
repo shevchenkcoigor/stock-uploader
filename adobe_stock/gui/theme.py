@@ -36,6 +36,7 @@ TOKENS = MappingProxyType(
                 "accent-ink": "#ffffff",
                 "accent-soft": "#dbe7ff",
                 "success": "#15803d",
+                "info": "#0e7490",
                 "warning": "#b45309",
                 "danger": "#b91c1c",
             }
@@ -53,6 +54,7 @@ TOKENS = MappingProxyType(
                 "accent-ink": "#0b1220",
                 "accent-soft": "#2d3f73",
                 "success": "#4ade80",
+                "info": "#22d3ee",
                 "warning": "#fbbf24",
                 "danger": "#f87171",
             }
