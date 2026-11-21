@@ -43,19 +43,14 @@ from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import chip, chip_html, dot_icon, drop_cell_widgets, status_cell, view_of
 from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
-from adobe_stock.gui.thumbnails import (
-    DEFAULT_THUMB_SIZE,
-    ROW_PADDING,
-    THUMB_SIZE_KEY,
-    THUMB_SIZES,
-    image_size,
-    thumb_size_key,
-    thumbnail_pixmap,
-    tile_icon,
-)
+from adobe_stock.gui.thumbnails import image_size, thumbnail_pixmap, tile_icon
 from adobe_stock.gui.view_icons import grid_icon, list_icon
 from adobe_stock.gui.widgets import ElidedLabel, ScrollBody, make_combo, mono_font
 
+THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
+DEFAULT_THUMB_SIZE = "M"
+THUMB_SIZE_KEY = "thumb_size"
+ROW_PADDING = 8
 AUTOSAVE_DELAY_MS = 700  # a pause in typing the title that saves it
 NAME_COLUMN_BASE = 150  # room for the checkbox and a file name; the picture comes on top of it
 PREVIEW_SIDE = 240
@@ -207,7 +202,8 @@ class DescriptionPage(TaskPage):
             self.status_filter.addItem(view_of(key).label, key)
         self.status_filter.currentIndexChanged.connect(self._filters_changed)
         head.addWidget(self.status_filter)
-        self._thumb_size = thumb_size_key(self.ctx.prefs.text(THUMB_SIZE_KEY, DEFAULT_THUMB_SIZE))
+        saved_size = self.ctx.prefs.text(THUMB_SIZE_KEY, DEFAULT_THUMB_SIZE)
+        self._thumb_size = saved_size if saved_size in THUMB_SIZES else DEFAULT_THUMB_SIZE
         self.size_buttons: dict[str, QPushButton] = {}
         sizes = self._joined_group()
         for key in THUMB_SIZES:

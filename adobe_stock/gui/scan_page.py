@@ -29,14 +29,7 @@ from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import drop_cell_widgets, status_cell, view_of
 from adobe_stock.gui.task_page import TaskPage
-from adobe_stock.gui.thumbnails import (
-    DEFAULT_THUMB_SIZE,
-    ROW_PADDING,
-    THUMB_SIZE_KEY,
-    THUMB_SIZES,
-    thumb_size_key,
-    tile_icon,
-)
+from adobe_stock.gui.thumbnails import tile_icon
 from adobe_stock.gui.widgets import mono_font
 
 LAST_SCAN_KEY = "last_scan"
@@ -46,6 +39,8 @@ PROBLEM_COLUMNS = ("Файл", "Причина", "Статус")
 COL_FILE, COL_REASON, COL_STATUS = range(3)
 SORT_FIELDS = ("file", "reason", "status")
 STATUS_COLUMN_WIDTH = 140
+PROBLEM_ROW_HEIGHT = 52  # as on the upload page
+PROBLEM_THUMB = 40
 PROBLEMS_PAGE_SIZE = 10
 PERCENT = 100
 STAT_TILES = (
@@ -210,9 +205,11 @@ class ScanPage(TaskPage):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setShowGrid(False)
+        self.table.setIconSize(QSize(PROBLEM_THUMB, PROBLEM_THUMB))
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(PROBLEM_ROW_HEIGHT)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(COL_FILE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_REASON, QHeaderView.ResizeMode.Stretch)
@@ -272,15 +269,7 @@ class ScanPage(TaskPage):
         item = self.table.item(row, COL_FILE)
         return item.data(FILE_PATH_ROLE) or "" if item is not None else ""
 
-    def _fit_thumb_size(self) -> int:
-        """Row picture side from the S/M/L choice made on the description page."""
-        side = THUMB_SIZES[thumb_size_key(self.ctx.prefs.text(THUMB_SIZE_KEY, DEFAULT_THUMB_SIZE))][0]
-        self.table.setIconSize(QSize(side, side))
-        self.table.verticalHeader().setDefaultSectionSize(side + ROW_PADDING)
-        return side
-
     def _fill_problems(self) -> None:
-        side = self._fit_thumb_size()
         keys = {
             "file": lambda item: item[0].lower(),
             "reason": lambda item: humanize_reason(item[1]).lower(),
@@ -297,7 +286,7 @@ class ScanPage(TaskPage):
             file_item.setToolTip(path)
             file_item.setData(FILE_PATH_ROLE, path)
             file_item.setFont(mono_font())
-            file_item.setIcon(tile_icon(path, side, "warning" if status == state.REVIEW else ""))
+            file_item.setIcon(tile_icon(path, PROBLEM_THUMB, "warning" if status == state.REVIEW else ""))
             self.table.setItem(index, COL_FILE, file_item)
             reason_item = QTableWidgetItem(humanize_reason(reason))
             reason_item.setToolTip(reason)

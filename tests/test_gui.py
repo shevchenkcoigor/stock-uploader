@@ -1457,21 +1457,6 @@ def test_thumbnail_size_buttons_resize_rows_and_tiles_and_are_remembered(app, wi
     assert reopened.size_buttons["L"].isChecked()  # the last choice comes back
 
 
-def test_scan_problem_rows_follow_the_thumbnail_size_chosen_on_the_description_page(app, window, prefs):
-    from adobe_stock.gui.description_page import ROW_PADDING, THUMB_SIZES
-
-    seed_files(prefs, ["a.jpg"])
-    conn = state.open_db(prefs.db_path)
-    conn.execute("UPDATE files SET status = 'invalid', error = 'not a JPEG' WHERE filename = 'a.jpg'")
-    conn.commit()
-    scan_page = page(window, "Скан")
-    for key, (row_side, _tile_side) in THUMB_SIZES.items():
-        prefs.set_text("thumb_size", key)
-        scan_page.refresh()
-        assert scan_page.table.iconSize().width() == row_side
-        assert scan_page.table.verticalHeader().defaultSectionSize() == row_side + ROW_PADDING
-
-
 def test_category_is_edited_in_the_list_row_and_saved_by_code(app, window, prefs):
     from PySide6.QtWidgets import QComboBox
 
