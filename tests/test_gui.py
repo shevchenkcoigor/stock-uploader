@@ -1246,6 +1246,14 @@ def test_caption_again_replaces_a_description_only_after_the_person_agrees(
     assert titles_and_statuses(prefs)["c.jpg"] == ("Mine", "uploaded")
 
 
+def test_caption_has_a_hint_with_the_statuses_it_touches(app, window, prefs):
+    description = page(window, "Описание")
+    hint = description.run_button.toolTip()
+    for label in ("Новый", "Описан", "Проверить", "На SFTP", "Отправлен в Adobe"):
+        assert label in hint
+    assert description.caption_info.toolTip() == hint == description.card_caption_button.toolTip()
+
+
 def test_card_caption_describes_only_the_open_file_with_the_shared_model(
     app, window, prefs, tmp_path, monkeypatch
 ):

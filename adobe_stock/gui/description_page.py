@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTableWidgetSelectionRange,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
 )
 
@@ -114,6 +116,27 @@ def clean_button(text: str, **properties: bool) -> QPushButton:
     return button
 
 
+def caption_help() -> str:
+    """How Caption works and for which statuses; the names are the ones the status chips show."""
+    new, described, review, uploaded, sent = (
+        f"<b>{view_of(key).label}</b>"
+        for key in (
+            state.NEEDS_METADATA,
+            state.PENDING,
+            state.REVIEW,
+            state.UPLOADED,
+            state.SUBMITTED,
+        )
+    )
+    return (
+        "<b>✦ Caption</b>: Claude пишет заголовок, ключевые слова и категорию.<br>"
+        f"• Ничего не отмечено: подписываются все файлы со статусом {new}.<br>"
+        f"• Отмечены файлы: подписываются они. {described} и {review} подписываются заново, "
+        "прежний текст заменяется (приложение спросит).<br>"
+        f"• {uploaded} и {sent} не подписываются никогда."
+    )
+
+
 class DescriptionPage(TaskPage):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__(ctx, "")
@@ -155,12 +178,18 @@ class DescriptionPage(TaskPage):
         self.model = self._make_model_combo()
         head.addWidget(self.model)
         self.run_button = self.add_action(QPushButton("✦ Caption"))
-        self.run_button.setToolTip(
-            "Заголовок, ключевые слова и категория: для отмеченных файлов (уже описанные подписываются "
-            "заново), а если ничего не отмечено, для всех новых файлов"
-        )
+        self.run_button.setToolTip(caption_help())
         self.run_button.clicked.connect(lambda: self._run_caption())
         head.addWidget(self.run_button)
+        self.caption_info = QToolButton()  # flat and small: the same text, for those who do not hover
+        self.caption_info.setText("ⓘ")
+        self.caption_info.setAutoRaise(True)
+        self.caption_info.setToolTip(caption_help())
+        self.caption_info.setAccessibleName("Как работает Caption")
+        self.caption_info.clicked.connect(
+            lambda: QToolTip.showText(QCursor.pos(), caption_help(), self.caption_info)
+        )
+        head.addWidget(self.caption_info)
         self.approve_all_button = self.add_action(QPushButton("Approve"))
         self.approve_all_button.setToolTip("Одобрить все файлы со статусом «Проверить»")
         self.approve_all_button.clicked.connect(lambda: self._approve(None))
@@ -317,7 +346,7 @@ class DescriptionPage(TaskPage):
         caption_row.addWidget(self.card_model, 1)
         self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
         self.card_caption_button.setProperty("primary", True)
-        self.card_caption_button.setToolTip("Описать только этот файл (описанный подписывается заново)")
+        self.card_caption_button.setToolTip(caption_help())
         self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
         caption_row.addWidget(self.card_caption_button)
         column.addLayout(caption_row)
