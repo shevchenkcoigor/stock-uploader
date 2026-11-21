@@ -90,6 +90,48 @@ def test_settings_page_saves_values_and_keeps_password_out_of_the_file(app, wind
     assert settings_page._save() is False
 
 
+class KeychainThatMustNotBeRead(MemoryStore):
+    """Reading the OS keychain asks the user for the Mac password: only an SFTP login may do it."""
+
+    def get(self) -> str:
+        raise AssertionError("the keychain was read")
+
+
+def test_settings_have_no_save_button_and_apply_a_committed_change(app, window, prefs):
+    settings_page = page(window, "Настройки")
+    assert not hasattr(settings_page, "save_button")
+
+    settings_page.user.setText("artist")
+    settings_page.user.editingFinished.emit()  # leaving the field or pressing Enter
+    assert prefs.text("sftp_user") == "artist"
+
+    settings_page.batch_size.setValue(123)
+    settings_page.batch_size.editingFinished.emit()
+    assert prefs.batch_size == 123
+
+    settings_page.theme.setCurrentIndex(1 - settings_page.theme.currentIndex())
+    assert prefs.text("theme") == str(settings_page.theme.currentData())
+
+
+def test_a_change_is_applied_when_the_page_is_left(app, window, prefs):
+    window.show()  # a page is hidden only when it was shown
+    window.nav_bottom.setCurrentRow(0)  # the settings page
+    settings_page = page(window, "Настройки")
+    settings_page.host.setText("sftp.example.test")  # typed, the field was not left yet
+    window.nav.setCurrentRow(0)
+    assert prefs.text("sftp_host") == "sftp.example.test"
+
+
+def test_saving_settings_does_not_read_the_keychain(app, window, prefs, tmp_path, monkeypatch):
+    monkeypatch.setattr(prefs, "secrets", KeychainThatMustNotBeRead())
+    monkeypatch.setattr(caption, "find_claude", lambda: None)
+    settings_page = page(window, "Настройки")
+    settings_page.user.setText("artist")
+
+    assert settings_page._save() is True  # no password typed: the stored one is not needed
+    settings_page._check_claude()  # the Claude check has nothing to do with the SFTP password
+
+
 def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     folder = make_unlabelled_folder(tmp_path, ["a.jpg", "b.jpg"])
     monkeypatch.setattr(caption, "find_claude", lambda: "claude")

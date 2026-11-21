@@ -90,14 +90,17 @@ class Preferences:
         saved = self.text("model", caption.DEFAULT_MODEL)
         return saved if saved in caption.MODEL_IDS else caption.DEFAULT_MODEL
 
-    def build_settings(self) -> Settings:
-        """Settings for the services. Reads no .env: everything comes from the app's own preferences."""
+    def build_settings(self, *, with_password: bool = True) -> Settings:
+        """Settings for the services. Reads no .env: everything comes from the app's own preferences.
+
+        Without the password the keychain is not touched (reading it makes macOS ask for the Mac password).
+        """
         return Settings(
             _env_file=None,  # pyright: ignore[reportCallIssue]
             sftp_host=self.text("sftp_host", DEFAULT_SFTP_HOST),
             sftp_port=int(self.text("sftp_port", str(DEFAULT_SFTP_PORT))),
             sftp_user=self.text("sftp_user"),
-            sftp_password=SecretStr(self.secrets.get()),
+            sftp_password=SecretStr(self.secrets.get() if with_password else ""),
             csv_dir=self.csv_dir,
             ai_title_label=self.text("ai_title_label", DEFAULT_AI_TITLE_LABEL),
         )

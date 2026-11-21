@@ -89,12 +89,47 @@ class SettingsPage(TaskPage):
         form.addRow("Тема", self.theme)
         self.form.addLayout(form)
 
-        self.save_button = self.add_action(QPushButton("Сохранить"))
-        self.save_button.clicked.connect(self._save)
         self.claude_button = self.add_action(QPushButton("Проверить Claude"))
         self.claude_button.clicked.connect(self._check_claude)
         self.sftp_button = self.add_action(QPushButton("Проверить SFTP"))
         self.sftp_button.clicked.connect(self._check_sftp)
+
+        self._saved = self._snapshot()
+        for field in (
+            self.db_path,
+            self.host,
+            self.port,
+            self.user,
+            self.password,
+            self.label,
+            self.csv_dir,
+            self.claude_path,
+            self.batch_size,
+        ):  # a change is applied when the field is left or Enter is pressed
+            field.editingFinished.connect(self._autosave)
+        self.theme.currentIndexChanged.connect(lambda _index: self._autosave())
+
+    def _snapshot(self) -> tuple[object, ...]:
+        """Everything the page stores (but the password), to see whether anything changed."""
+        return (
+            self.db_path.text().strip(),
+            self.host.text().strip(),
+            self.port.text().strip(),
+            self.user.text().strip(),
+            self.label.text().strip(),
+            self.csv_dir.text().strip(),
+            self.claude_path.text().strip(),
+            self.batch_size.value(),
+            self.theme.currentData(),
+        )
+
+    def _autosave(self) -> None:
+        if self._snapshot() != self._saved or self.password.text():
+            self._save()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        self._autosave()  # what was typed in the last field is applied when the page is left
+        super().hideEvent(event)
 
     @staticmethod
     def _with_browse(field: QLineEdit, handler) -> QWidget:
@@ -118,11 +153,19 @@ class SettingsPage(TaskPage):
         )
         if chosen:
             self.db_path.setText(chosen)
+            self._autosave()
 
     def _browse_csv(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Папка для CSV", self.csv_dir.text())
         if chosen:
             self.csv_dir.setText(chosen)
+            self._autosave()
+
+    @staticmethod
+    def _path_text(field: QLineEdit) -> str:
+        """An emptied field means the default place, not the current folder."""
+        text = field.text().strip()
+        return str(Path(text).expanduser()) if text else ""
 
     def _save(self) -> bool:
         prefs = self.ctx.prefs
@@ -131,12 +174,12 @@ class SettingsPage(TaskPage):
         except ValueError:
             self.write("Порт должен быть числом.")
             return False
-        prefs.set_text("db_path", str(Path(self.db_path.text().strip()).expanduser()))
+        prefs.set_text("db_path", self._path_text(self.db_path))
         prefs.set_text("sftp_host", self.host.text().strip())
         prefs.set_text("sftp_port", self.port.text().strip())
         prefs.set_text("sftp_user", self.user.text().strip())
         prefs.set_text("ai_title_label", self.label.text().strip())
-        prefs.set_text("csv_dir", str(Path(self.csv_dir.text().strip()).expanduser()))
+        prefs.set_text("csv_dir", self._path_text(self.csv_dir))
         prefs.set_text("batch_size", str(self.batch_size.value()))
         prefs.set_text("claude_path", self.claude_path.text().strip())
         prefs.set_text(THEME_KEY, str(self.theme.currentData()))
@@ -147,7 +190,7 @@ class SettingsPage(TaskPage):
             if self.password.text():
                 prefs.secrets.set(self.password.text())
                 self.password.clear()
-            prefs.build_settings()
+            prefs.build_settings(with_password=False)  # only checks the values: no keychain read
         except (ValidationError, ValueError) as error:
             self.write(f"Неверные настройки: {error}")
             return False
@@ -155,7 +198,8 @@ class SettingsPage(TaskPage):
             self.write(f"Не удалось сохранить пароль в связке ключей: {error}")
             return False
         prefs.apply_environment()
-        self.write("Сохранено.")
+        self._saved = self._snapshot()
+        self.status.setText("Сохранено")
         self.ctx.data_changed.emit()
         return True
 
