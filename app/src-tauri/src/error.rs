@@ -4,6 +4,16 @@ use serde::{Serialize, Serializer};
 pub enum AppError {
     #[error("база данных: {0}")]
     Db(#[from] rusqlite::Error),
+    #[error("файл настроек: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("файл настроек повреждён: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Invalid(String),
+    #[error("связка ключей: {0}")]
+    Keychain(#[from] keyring::Error),
+    #[error("{0}")]
+    Check(String),
 }
 
 impl Serialize for AppError {

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::AppResult;
+use crate::prefs;
 
-const APP_DIR_NAME: &str = "Adobe Stock Uploader";
 const DB_FILE_NAME: &str = "state.db";
 const DB_ENV_VAR: &str = "ADOBE_STATE_DB";
 
@@ -14,10 +14,7 @@ pub fn db_path() -> PathBuf {
     if let Some(path) = std::env::var_os(DB_ENV_VAR) {
         return PathBuf::from(path);
     }
-    dirs::data_dir()
-        .unwrap_or_default()
-        .join(APP_DIR_NAME)
-        .join(DB_FILE_NAME)
+    prefs::db_path_override().unwrap_or_else(|| prefs::legacy_data_dir().join(DB_FILE_NAME))
 }
 
 /// Opens the database read-only; `None` when it does not exist yet (an empty app).

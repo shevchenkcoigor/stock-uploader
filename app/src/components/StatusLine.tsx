@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type StatusCount } from '../lib/api'
+import { SETTINGS_SAVED_EVENT } from '../lib/useSettings'
 import { STATUS_ORDER, STATUS_VIEWS } from '../lib/status'
 
 const EMPTY_TEXT = 'База пуста: начните со скана'
@@ -16,10 +17,15 @@ function summaryText(counts: StatusCount[]): string {
 export function StatusLine() {
   const [text, setText] = useState('')
   useEffect(() => {
-    api
-      .statusSummary()
-      .then((counts) => setText(summaryText(counts)))
-      .catch((error) => setText(String(error)))
+    const load = () =>
+      api
+        .statusSummary()
+        .then((counts) => setText(summaryText(counts)))
+        .catch((error) => setText(String(error)))
+    load()
+    // The database may have been switched on the settings page.
+    window.addEventListener(SETTINGS_SAVED_EVENT, load)
+    return () => window.removeEventListener(SETTINGS_SAVED_EVENT, load)
   }, [])
   return <footer className="border-t border-line bg-window px-4 py-1.5 text-xs text-ink-muted">{text}</footer>
 }
