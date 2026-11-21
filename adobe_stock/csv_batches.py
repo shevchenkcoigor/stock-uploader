@@ -21,6 +21,7 @@ class CsvEntry:
     rows: int
     bad_rows: int
     state: str
+    path: str = ""  # the CSV file on disk
     folder: str = ""
     part: int = 0
     waiting: tuple[tuple[str, int], ...] = ()  # (status, files) of batch files not on SFTP yet
@@ -96,7 +97,7 @@ def _entry(batch_id: int, path: Path, rows: list[sqlite3.Row]) -> CsvEntry:
         kind = ERROR
     else:
         kind = BUILT
-    return CsvEntry(batch_id, path.name, len(rows), bad, kind)
+    return CsvEntry(batch_id, path.name, len(rows), bad, kind, str(path))
 
 
 def batches_without_csv(conn: sqlite3.Connection) -> list[sqlite3.Row]:

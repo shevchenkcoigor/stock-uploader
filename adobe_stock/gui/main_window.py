@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ctx = ctx
         self.setWindowTitle(APP_NAME)
-        self.resize(1100, 720)
+        self.resize(1280, 720)
 
         self.pages: list[tuple[str, QWidget]] = [
             ("1. Скан", ScanPage(ctx)),

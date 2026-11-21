@@ -1741,3 +1741,52 @@ def test_csv_page_allows_sending_a_fully_uploaded_batch(app, window, prefs):
     csv_page.refresh()
 
     assert csv_page.sent_button.isEnabled() and csv_page.send_hint.isHidden()
+
+
+def rebuild_button(csv_page, row: int):
+    return csv_page.files.cellWidget(row, 4).findChild(type(csv_page.add_button))
+
+
+def test_csv_page_has_no_bottom_buttons_and_a_rebuild_button_per_csv(app, window, prefs):
+    csv_page, batch = uploaded_csv_page(app, window, prefs)
+
+    assert not hasattr(csv_page, "build_button") and not hasattr(csv_page, "folder_button")
+    button = rebuild_button(csv_page, 0)
+    assert button.text() == "Пересобрать" and button.isEnabled()
+    next(prefs.csv_dir.glob("*batch*.csv")).unlink()
+
+    button.click()
+    finish(app, csv_page)
+
+    assert list(prefs.csv_dir.glob("*batch*.csv"))  # written again
+
+
+def test_csv_page_sent_csv_has_no_rebuild_button(app, window, prefs):
+    csv_page, batch = uploaded_csv_page(app, window, prefs)
+    conn = state.open_db(prefs.db_path)
+    services.mark_submitted(conn, batch)
+    conn.close()
+
+    csv_page.refresh()
+
+    assert csv_page.files.cellWidget(0, 4) is None
+
+
+def test_csv_page_double_click_on_the_name_opens_the_file(app, window, prefs, monkeypatch):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    opened: list[str] = []
+    monkeypatch.setattr("adobe_stock.gui.csv_page.open_file", lambda path: opened.append(path) or True)
+
+    csv_page._file_double_clicked(0, 0)
+    csv_page._file_double_clicked(0, 2)  # another column: nothing happens
+
+    assert len(opened) == 1 and opened[0].endswith(".csv") and Path(opened[0]).exists()
+
+
+def test_csv_page_says_when_the_csv_file_is_gone(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    next(prefs.csv_dir.glob("*batch*.csv")).unlink()
+
+    csv_page._file_double_clicked(0, 0)
+
+    assert "Файл не найден" in csv_page.status.text()
