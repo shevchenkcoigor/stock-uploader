@@ -489,24 +489,49 @@ def record_error(conn: sqlite3.Connection, path: Path, error: str) -> None:
         conn.execute("UPDATE files SET error = ?, updated_at = ? WHERE path = ?", (error, _now(), str(path)))
 
 
+def _open_batch(conn: sqlite3.Connection, root: Path) -> tuple[int, list[sqlite3.Row]] | None:
+    """The latest batch of `root` while it can still take files: no CSV yet and every file pending."""
+    batch = conn.execute(
+        "SELECT id, csv_path FROM batches WHERE folder = ? ORDER BY part DESC LIMIT 1", (str(root),)
+    ).fetchone()
+    if batch is None or batch["csv_path"]:
+        return None
+    files = conn.execute("SELECT * FROM files WHERE batch_id = ? ORDER BY id", (batch["id"],)).fetchall()
+    if not files or any(row["status"] != PENDING for row in files):
+        return None
+    return batch["id"], files
+
+
 def _assign_batches(conn, root: Path, new_valid: list[tuple[Path, Item]], batch_size: int | None) -> int:
+    """Put `new_valid` into batches of `root`: first into the open batch, the overflow into new ones.
+
+    Returns the number of batches created.
+    """
     if not new_valid:
         return 0
+    open_batch = _open_batch(conn, root)
+    open_id, open_files = open_batch if open_batch else (None, [])
     path_by_name = {item.filename: image for image, item in new_valid}
+    path_by_name.update({row["filename"]: Path(row["path"]) for row in open_files})
+    items = [_item_from_row(row) for row in open_files] + [item for _, item in new_valid]
     next_part = conn.execute(
         "SELECT COALESCE(MAX(part), 0) + 1 FROM batches WHERE folder = ?", (str(root),)
     ).fetchone()[0]
-    groups = split_into_batches([item for _, item in new_valid], batch_size)
-    for offset, group in enumerate(groups):
-        cursor = conn.execute(
-            "INSERT INTO batches (folder, part, created_at) VALUES (?, ?, ?)",
-            (str(root), next_part + offset, _now()),
-        )
+    created = 0
+    for index, group in enumerate(split_into_batches(items, batch_size)):
+        if index == 0 and open_id is not None:
+            batch_id = open_id
+        else:
+            batch_id = conn.execute(
+                "INSERT INTO batches (folder, part, created_at) VALUES (?, ?, ?)",
+                (str(root), next_part + created, _now()),
+            ).lastrowid
+            created += 1
         conn.executemany(
             "UPDATE files SET batch_id = ? WHERE path = ?",
-            [(cursor.lastrowid, str(path_by_name[item.filename])) for item in group],
+            [(batch_id, str(path_by_name[item.filename])) for item in group],
         )
-    return len(groups)
+    return created
 
 
 def invalid_files(conn: sqlite3.Connection, root: Path) -> list[sqlite3.Row]:

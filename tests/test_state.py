@@ -33,13 +33,14 @@ def test_scan_is_incremental(tmp_path):
     run(db, "scan", str(folder))
     assert conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0] == 1
 
-    # A new file in the same folder becomes a second batch part.
+    # A new file in the same folder joins the still-open batch instead of starting a new part.
     Image.new("RGB", (2000, 2000), (200, 200, 200)).save(folder / "c.jpg", "JPEG")
     (folder / "metadata.csv").write_text(
         "filename,title,keywords\na.jpg,T,k\nb.jpg,T,k\nc.jpg,T,k\n", encoding="utf-8"
     )
     run(db, "scan", str(folder))
-    assert [r["part"] for r in conn.execute("SELECT part FROM batches ORDER BY part")] == [1, 2]
+    assert [r["part"] for r in conn.execute("SELECT part FROM batches ORDER BY part")] == [1]
+    assert conn.execute("SELECT COUNT(*) FROM files WHERE batch_id = 1").fetchone()[0] == 3
 
 
 def test_same_name_different_content_gets_unique_remote_name(tmp_path):

@@ -178,9 +178,9 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     batch = conn.execute("SELECT id FROM batches").fetchone()["id"]
     csv_page._build(batch)
     finish(app, csv_page)
-    assert "CSV собран: 1 строк" in csv_page.status.text()
+    assert "CSV собран: 2 строк" in csv_page.status.text()  # the approved file joined the open batch
     assert (tmp_path / "csv_out").exists() and list((tmp_path / "csv_out").glob("*.csv"))
-    assert csv_page.files.rowCount() == 1 and csv_page.table.rowCount() == 1
+    assert csv_page.files.rowCount() == 1 and csv_page.table.rowCount() == 2
     assert "На SFTP: 2" in window.summary.text()
 
 
