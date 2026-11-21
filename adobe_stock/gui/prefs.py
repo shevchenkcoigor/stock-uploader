@@ -12,7 +12,12 @@ from pydantic import SecretStr
 from PySide6.QtCore import QSettings, QStandardPaths
 
 from adobe_stock import caption
-from adobe_stock.services import DEFAULT_BATCH_SIZE
+from adobe_stock.services import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_CAPTION_LIMIT,
+    DEFAULT_CAPTION_WORKERS,
+    DEFAULT_IMAGES_PER_CALL,
+)
 from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL, DEFAULT_SFTP_HOST, DEFAULT_SFTP_PORT, Settings
 
 APP_NAME = "Adobe Stock Uploader"
@@ -84,6 +89,18 @@ class Preferences:
     @property
     def batch_size(self) -> int:
         return int(self.text("batch_size", str(DEFAULT_BATCH_SIZE)))
+
+    @property
+    def caption_limit(self) -> int:
+        return int(self.text("caption_limit", str(DEFAULT_CAPTION_LIMIT)))
+
+    @property
+    def caption_workers(self) -> int:
+        return int(self.text("caption_workers", str(DEFAULT_CAPTION_WORKERS)))
+
+    @property
+    def caption_per_call(self) -> int:
+        return int(self.text("caption_per_call", str(DEFAULT_IMAGES_PER_CALL)))
 
     @property
     def model(self) -> str:
