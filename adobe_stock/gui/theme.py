@@ -88,6 +88,7 @@ QLabel[role="stat-danger"] {{ font-size: 20px; font-weight: 600; color: {danger}
 QLabel[role="chip"], QFrame#panel QLabel[role="chip"] {{ border: 1px solid {border}; border-radius: 11px; background: {surface_sunken}; padding: 1px 10px; font-size: 12px; }}
 QLabel[role="error"] {{ color: {danger}; font-size: 12px; }}
 QLineEdit[mono="true"] {{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }}
+QHeaderView[checkable="true"]::section:first {{ padding-left: 36px; }}
 QCheckBox {{ spacing: 8px; color: {ink}; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {border_strong}; border-radius: 4px; background: {surface}; }}
 QTableView::indicator, QListView::indicator {{ width: 16px; height: 16px; border: 1px solid {border_strong}; border-radius: 4px; background: {surface}; }}

@@ -840,12 +840,12 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     assert [(json.loads(r[0]), r[1]) for r in rows[3:]] == [([], "")] * 22
     assert bar.tag_input.text() == ""
 
-    bar.select_all_clicked.emit()  # all 25, across both pages
+    description._toggle_all()  # all 25, across both pages
     assert bar.count_label.text() == "Выбрано 25"
     description._go_page(1)
     assert bar.count_label.text() == "Выбрано 25"
     assert len(description.table.selectionModel().selectedRows()) == 5
-    bar.clear_clicked.emit()
+    description._toggle_all()  # all are marked, so this clears
     assert bar.count_label.text() == "Выбрано 0" and not bar.isHidden()
 
 
@@ -879,7 +879,39 @@ def test_description_clear_and_select_all_update_the_checkboxes(app, window, pre
     window.nav.setCurrentRow(1)
     description = page(window, "Описание")
     description.refresh()
-    description.bulk_bar.select_all_clicked.emit()
+    description._toggle_all()
     assert [description.table.item(r, 0).checkState() for r in range(3)] == [Qt.CheckState.Checked] * 3
-    description.bulk_bar.clear_clicked.emit()
+    description._toggle_all()
     assert [description.table.item(r, 0).checkState() for r in range(3)] == [Qt.CheckState.Unchecked] * 3
+
+
+def test_header_checkbox_marks_and_unmarks_everything_without_sorting(app, window, prefs):
+    from PySide6.QtTest import QTest
+
+    seed_files(prefs, [f"f{n:02d}.jpg" for n in range(25)])
+    window.nav.setCurrentRow(1)
+    window.show()
+    description = page(window, "Описание")
+    description.refresh()
+    header = description.check_header
+    sorted_before = (description.sorter.field, description.sorter.descending)
+
+    QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=header.box_rect().center())
+    app.processEvents()
+    assert description.bulk_bar.count_label.text() == "Выбрано 25"  # all pages, not only this one
+    assert header.check_state() == Qt.CheckState.Checked
+    assert (
+        description.sorter.field,
+        description.sorter.descending,
+    ) == sorted_before  # the click did not sort
+
+    description.table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+    assert header.check_state() == Qt.CheckState.PartiallyChecked
+
+    QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=header.box_rect().center())
+    app.processEvents()
+    assert description.bulk_bar.count_label.text() == "Выбрано 25"  # not all were marked, so it marks all
+    QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=header.box_rect().center())
+    app.processEvents()
+    assert description.bulk_bar.count_label.text() == "Выбрано 0"
+    assert header.check_state() == Qt.CheckState.Unchecked

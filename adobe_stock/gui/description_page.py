@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from adobe_stock import caption, services, state
 from adobe_stock.categories import CATEGORIES
 from adobe_stock.gui.bulk_bar import BulkBar
+from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
@@ -147,6 +148,8 @@ class DescriptionPage(TaskPage):
         column.addLayout(head)
 
         self.table = QTableWidget(0, len(COLUMNS))
+        self.check_header = install_check_header(self.table)
+        self.check_header.toggled.connect(self._toggle_all)
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
@@ -203,8 +206,7 @@ class DescriptionPage(TaskPage):
         self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.bulk_bar = BulkBar()
         self.bulk_bar.applied.connect(self._bulk_apply)
-        self.bulk_bar.select_all_clicked.connect(self._select_all)
-        self.bulk_bar.clear_clicked.connect(self._clear_marked)
+        self.bulk_bar.toggle_all.connect(self._toggle_all)
         column.addWidget(self.bulk_bar)
 
         self.views = QStackedWidget()
@@ -421,6 +423,7 @@ class DescriptionPage(TaskPage):
         self.tiles_button.setChecked(tiles)
         self.list_button.setChecked(not tiles)
         self.views.setCurrentIndex(1 if tiles else 0)
+        self.bulk_bar.select_box.setVisible(tiles)
         self._page = 0
         self._rebuild()
 
@@ -485,7 +488,7 @@ class DescriptionPage(TaskPage):
         finally:
             self._loading = was_loading
         self._sync_checks()
-        self.bulk_bar.set_count(self._marked_count())
+        self._show_marks()
 
     # ---- bulk edit ----------------------------------------------------------------------------
 
@@ -501,7 +504,7 @@ class DescriptionPage(TaskPage):
             return
         self._marked = picked
         self._sync_checks()
-        self.bulk_bar.set_count(self._marked_count())
+        self._show_marks()
 
     def _sync_checks(self) -> None:
         was_loading, self._loading = self._loading, True
@@ -528,15 +531,22 @@ class DescriptionPage(TaskPage):
 
     def _toggle_mark(self, filename: str, marked: bool) -> None:
         self._marked = self._marked | {filename} if marked else self._marked - {filename}
-        self.bulk_bar.set_count(self._marked_count())
+        self._show_marks()
         QTimer.singleShot(0, self._select_in_views)  # the marked rows are highlighted too, after the click
 
-    def _select_all(self) -> None:
-        self._marked = {row["filename"] for row in self._visible}
-        self._select_in_views()
+    def _show_marks(self) -> None:
+        marked = self._marked_count()
+        self.bulk_bar.set_marks(marked, len(self._visible))
+        if marked == 0:
+            state = Qt.CheckState.Unchecked
+        else:
+            state = Qt.CheckState.Checked if marked == len(self._visible) else Qt.CheckState.PartiallyChecked
+        self.check_header.set_state(state)
 
-    def _clear_marked(self) -> None:
-        self._marked = set()
+    def _toggle_all(self) -> None:
+        """Mark every file of the filtered list (all pages), or unmark them when all are marked."""
+        everything = {row["filename"] for row in self._visible}
+        self._marked = set() if self._marked >= everything else everything
         self._select_in_views()
 
     def _bulk_apply(self, tag: str, category: object) -> None:
