@@ -570,6 +570,14 @@ class DescriptionPage(TaskPage):
     def _marked_count(self) -> int:
         return sum(1 for row in self._visible if row["filename"] in self._marked)
 
+    def _marked_to_caption(self) -> list[str]:
+        """Marked files that still wait for a description: uploaded and described ones are not captioned."""
+        return [
+            row["filename"]
+            for row in self._visible
+            if row["filename"] in self._marked and row["status"] == state.NEEDS_METADATA
+        ]
+
     def _check_state(self, filename: str) -> Qt.CheckState:
         return Qt.CheckState.Checked if filename in self._marked else Qt.CheckState.Unchecked
 
@@ -612,7 +620,7 @@ class DescriptionPage(TaskPage):
     def _show_marks(self) -> None:
         marked = self._marked_count()
         self.bulk_bar.set_marks(marked, len(self._visible))
-        self.run_button.setText(f"✦ Caption ({marked})" if marked else "✦ Caption")
+        self.run_button.setText(f"✦ Caption ({len(self._marked_to_caption())})" if marked else "✦ Caption")
         if marked == 0:
             state = Qt.CheckState.Unchecked
         else:
@@ -842,9 +850,6 @@ class DescriptionPage(TaskPage):
                 combo.setCurrentIndex(index)
                 combo.blockSignals(False)
 
-    def _marked_names(self) -> list[str]:
-        return [row["filename"] for row in self._visible if row["filename"] in self._marked]
-
     def _run_caption(self, names: list[str] | None = None) -> None:
         """Caption `names`; without them the marked files, and with nothing marked every new file."""
         if caption.find_claude() is None:
@@ -858,7 +863,10 @@ class DescriptionPage(TaskPage):
         model = str(self.model.currentData())
         self.ctx.prefs.set_text("model", model)
         batch_size = self.ctx.prefs.batch_size
-        targets = names if names is not None else self._marked_names() or None
+        # nothing marked: every new file; something marked: only the marked new ones (maybe none)
+        targets = (
+            names if names is not None else (self._marked_to_caption() if self._marked_count() else None)
+        )
 
         def work(conn, progress, should_stop):
             return services.caption_files(

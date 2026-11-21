@@ -943,6 +943,41 @@ def titles_by_file(prefs):
     return {row["filename"]: row["title"] for row in conn.execute("SELECT filename, title FROM files")}
 
 
+def test_caption_skips_uploaded_files_even_when_marked(app, window, prefs, tmp_path, monkeypatch):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg", "b.jpg", "c.jpg"])
+    conn = state.open_db(prefs.db_path)
+    with conn:
+        conn.execute("UPDATE files SET status = ? WHERE filename = 'a.jpg'", (state.UPLOADED,))
+    description.refresh()
+
+    description._toggle_all()  # marks all three, one of them uploaded
+    assert description.run_button.text() == "✦ Caption (2)"
+    description._run_caption()
+    finish(app, description)
+
+    titles = titles_by_file(prefs)
+    assert not titles["a.jpg"]
+    assert titles["b.jpg"] and titles["c.jpg"]
+
+
+def test_caption_with_only_uploaded_files_marked_describes_nothing(app, window, prefs, tmp_path, monkeypatch):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg", "b.jpg"])
+    conn = state.open_db(prefs.db_path)
+    with conn:
+        conn.execute("UPDATE files SET status = ? WHERE filename = 'a.jpg'", (state.UPLOADED,))
+    description.refresh()
+    row = next(
+        r for r in range(description.table.rowCount()) if description.table.item(r, 0).text() == "a.jpg"
+    )
+    description.table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+
+    description._run_caption()
+    finish(app, description)
+
+    assert not any(titles_by_file(prefs).values())  # the marked one is uploaded: nothing else is captioned
+    assert "Нечего подписывать" in description.output.toPlainText()
+
+
 def test_caption_describes_only_the_marked_files_and_everything_when_none_marked(
     app, window, prefs, tmp_path, monkeypatch
 ):
