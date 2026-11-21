@@ -119,6 +119,21 @@ def test_settings_have_no_save_button_and_apply_a_committed_change(app, window, 
     assert prefs.text("theme") == str(settings_page.theme.currentData())
 
 
+def test_caption_preferences_default_to_a_whole_batch_one_worker_and_five_per_call(prefs):
+    assert (prefs.caption_limit, prefs.caption_workers, prefs.caption_per_call) == (1000, 1, 5)
+
+
+def test_settings_page_saves_the_caption_preferences(app, window, prefs):
+    settings_page = page(window, "Настройки")
+
+    settings_page.caption_limit.setValue(300)
+    settings_page.caption_workers.setValue(3)
+    settings_page.caption_per_call.setValue(2)
+    settings_page.caption_per_call.editingFinished.emit()
+
+    assert (prefs.caption_limit, prefs.caption_workers, prefs.caption_per_call) == (300, 3, 2)
+
+
 def test_a_change_is_applied_when_the_page_is_left(app, window, prefs):
     window.show()  # a page is hidden only when it was shown
     window.nav_bottom.setCurrentRow(0)  # the settings page

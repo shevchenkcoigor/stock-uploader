@@ -975,14 +975,17 @@ class DescriptionPage(TaskPage):
         if described and not self._confirm_overwrite(described):
             return
 
-        ai_label = self.ctx.prefs.build_settings(with_password=False).ai_title_label
+        prefs = self.ctx.prefs
+        ai_label = prefs.build_settings(with_password=False).ai_title_label
+        limit, workers, per_call = prefs.caption_limit, prefs.caption_workers, prefs.caption_per_call
 
         def work(conn, progress, should_stop):
             return services.caption_files(
                 conn,
                 model,
-                limit=services.DEFAULT_CAPTION_LIMIT,
-                per_call=services.DEFAULT_IMAGES_PER_CALL,
+                limit=limit,
+                per_call=per_call,
+                workers=workers,
                 batch_size=batch_size,
                 names=targets,
                 redo=redo,

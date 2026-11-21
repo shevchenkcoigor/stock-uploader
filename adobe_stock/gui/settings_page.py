@@ -24,6 +24,8 @@ from adobe_stock.settings import DEFAULT_AI_TITLE_LABEL, DEFAULT_SFTP_HOST, DEFA
 
 CLAUDE_CHECK_TIMEOUT_SECONDS = 30
 MAX_BATCH_SIZE = 20_000
+MAX_CAPTION_WORKERS = 8
+MAX_IMAGES_PER_CALL = 20
 
 
 def check_claude(progress, should_stop) -> str:
@@ -77,6 +79,12 @@ class SettingsPage(TaskPage):
         self.batch_size.setRange(1, MAX_BATCH_SIZE)
         self.batch_size.setValue(prefs.batch_size)
         form.addRow("Файлов в батче", self.batch_size)
+        self.caption_limit = self._spin(1, MAX_BATCH_SIZE, prefs.caption_limit)
+        form.addRow("Файлов за одно нажатие «Caption»", self.caption_limit)
+        self.caption_workers = self._spin(1, MAX_CAPTION_WORKERS, prefs.caption_workers)
+        form.addRow("Параллельных вызовов Claude", self.caption_workers)
+        self.caption_per_call = self._spin(1, MAX_IMAGES_PER_CALL, prefs.caption_per_call)
+        form.addRow("Картинок в одном вызове", self.caption_per_call)
         self.csv_dir = QLineEdit(str(prefs.csv_dir))
         form.addRow("Папка для CSV", self._with_browse(self.csv_dir, self._browse_csv))
         self.claude_path = QLineEdit(prefs.text("claude_path"))
@@ -108,6 +116,9 @@ class SettingsPage(TaskPage):
             self.csv_dir,
             self.claude_path,
             self.batch_size,
+            self.caption_limit,
+            self.caption_workers,
+            self.caption_per_call,
         ):  # a change is applied when the field is left or Enter is pressed
             field.editingFinished.connect(self._autosave)
         self.theme.currentIndexChanged.connect(lambda _index: self._autosave())
@@ -123,8 +134,18 @@ class SettingsPage(TaskPage):
             self.csv_dir.text().strip(),
             self.claude_path.text().strip(),
             self.batch_size.value(),
+            self.caption_limit.value(),
+            self.caption_workers.value(),
+            self.caption_per_call.value(),
             self.theme.currentData(),
         )
+
+    @staticmethod
+    def _spin(low: int, high: int, value: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(low, high)
+        spin.setValue(value)
+        return spin
 
     def _autosave(self) -> None:
         if self._snapshot() != self._saved or self.password.text():
@@ -184,6 +205,9 @@ class SettingsPage(TaskPage):
         prefs.set_text("ai_title_label", self.label.text().strip())
         prefs.set_text("csv_dir", self._path_text(self.csv_dir))
         prefs.set_text("batch_size", str(self.batch_size.value()))
+        prefs.set_text("caption_limit", str(self.caption_limit.value()))
+        prefs.set_text("caption_workers", str(self.caption_workers.value()))
+        prefs.set_text("caption_per_call", str(self.caption_per_call.value()))
         prefs.set_text("claude_path", self.claude_path.text().strip())
         prefs.set_text(THEME_KEY, str(self.theme.currentData()))
         app = QApplication.instance()
