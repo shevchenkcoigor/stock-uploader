@@ -43,7 +43,7 @@ COL_NAME, COL_ROWS, COL_STATE = range(3)
 ROW_COLUMNS = HEADERS  # Adobe's own names: Filename, Title, Keywords, Category, Releases
 ROW_FIELDS = ("name", "title", "keywords", "category", None)  # Releases cannot be sorted
 COL_FILENAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RELEASES = range(5)
-RELEASES_WIDTH = 70  # always empty (AI images have no releases), so the column is kept narrow
+HEADER_PADDING = 40  # the header cell's own padding around its text
 EDITABLE_COLUMNS = (COL_TITLE, COL_KEYWORDS, COL_CATEGORY)
 ENTRY_VIEWS = {
     csv_batches.ERROR: StatusView("Ошибка", "danger", 0),
@@ -225,7 +225,10 @@ class CsvPage(TaskPage):
         table.setColumnWidth(COL_FILENAME, 180)
         table.setColumnWidth(COL_CATEGORY, 150)
         header.setSectionResizeMode(COL_RELEASES, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(COL_RELEASES, RELEASES_WIDTH)
+        # always empty (AI images have no releases): as narrow as the full word «Releases» allows
+        table.setColumnWidth(
+            COL_RELEASES, header.fontMetrics().horizontalAdvance(HEADERS[-1]) + HEADER_PADDING
+        )
         table.setItemDelegateForColumn(COL_TITLE, EmptyCellDelegate("Нет заголовка", table))
         table.setItemDelegateForColumn(COL_KEYWORDS, EmptyCellDelegate("Нет ключевых слов", table))
         table.setItemDelegateForColumn(COL_CATEGORY, CategoryDelegate("Нет категории", table))

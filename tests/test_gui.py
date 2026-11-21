@@ -1698,3 +1698,14 @@ def test_long_status_message_does_not_widen_the_window(app, window, prefs):
 
     assert window.width() == width
     assert csv_page.status.minimumSizeHint().width() < width
+
+
+def test_csv_page_headers_are_adobes_and_releases_is_not_cut(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+    window.show()
+    header = csv_page.table.horizontalHeader()
+    titles = [csv_page.table.horizontalHeaderItem(c).text() for c in range(csv_page.table.columnCount())]
+
+    assert [t.split(" ")[0] for t in titles] == ["Filename", "Title", "Keywords", "Category", "Releases"]
+    assert header.sectionSize(4) >= header.fontMetrics().horizontalAdvance("Releases")
+    assert header.sectionSize(4) < 150  # still narrow
