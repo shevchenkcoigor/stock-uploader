@@ -68,3 +68,42 @@ def test_submitted_batch_is_sent_and_keeps_its_rows(tmp_path):
 
     assert (entry.state, entry.rows) == (csv_batches.SENT, 1)
     assert [r["status"] for r in csv_batches.csv_rows(conn, batch)] == [state.SUBMITTED]
+
+
+def test_entry_names_its_batch_by_folder_and_part(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    services.build_csv(conn, batch, settings(tmp_path))
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert entry.batch_name == "f1 · 1"
+    assert entry.waiting == ()
+
+
+def test_batch_with_files_not_uploaded_yet_lists_what_is_missing(tmp_path):
+    _, conn = scanned(tmp_path, ["a.jpg", "b.jpg", "c.jpg"])
+    first = state.pending_files(conn)[0][0]
+    state.mark_uploaded(conn, first)
+    services.build_csv(conn, 1, settings(tmp_path))
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert entry.waiting == ((state.PENDING, 2),)
+
+
+def test_mark_submitted_is_refused_until_the_whole_batch_is_uploaded(tmp_path):
+    _, conn = scanned(tmp_path, ["a.jpg", "b.jpg"])
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])
+    services.build_csv(conn, 1, settings(tmp_path))
+
+    refused = services.mark_submitted(conn, 1)
+
+    assert refused.count == 0 and refused.waiting == ((state.PENDING, 1),)
+    assert csv_batches.csv_entries(conn)[0].state != csv_batches.SENT
+
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])
+    services.build_csv(conn, 1, settings(tmp_path))
+    done = services.mark_submitted(conn, 1)
+
+    assert done.count == 2 and done.waiting == ()

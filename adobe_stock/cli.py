@@ -202,6 +202,10 @@ def cmd_csv(args: argparse.Namespace) -> int:
 def cmd_submitted(args: argparse.Namespace) -> int:
     conn = open_state(args.db)
     report = services.mark_submitted(conn, args.batch)
+    if report.refused:
+        left = ", ".join(f"{status}: {n}" for status, n in report.waiting)
+        print(f"batch {args.batch} is not fully uploaded yet ({left}); nothing marked")
+        return 1
     for warning in report.warnings:
         print(f"WARNING {warning}")
     print(f"marked {report.count} files as submitted")

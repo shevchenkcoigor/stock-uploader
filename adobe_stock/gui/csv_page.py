@@ -28,18 +28,19 @@ from adobe_stock.gui.description_page import category_name
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager
-from adobe_stock.gui.status import StatusView, drop_cell_widgets, view_cell
+from adobe_stock.gui.status import StatusView, drop_cell_widgets, view_cell, view_of
 from adobe_stock.gui.tag_editor import parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.widgets import mono_font
 from adobe_stock.metadata_csv import HEADERS
 
-FILES_WIDTH = 360
+FILES_WIDTH = 460
+BATCH_COLUMN_WIDTH = 100  # the batch name is cut with «…»; the full one is in the tooltip
 ROW_PAGE_SIZE = 20
 ROW_HEIGHT = 40
-LIST_COLUMNS = ("Имя", "Строк", "Статус")
-LIST_FIELDS = ("name", "rows", "status")
-COL_NAME, COL_ROWS, COL_STATE = range(3)
+LIST_COLUMNS = ("Имя", "Батч", "Строк", "Статус")
+LIST_FIELDS = ("name", "batch", "rows", "status")
+COL_NAME, COL_BATCH, COL_ROWS, COL_STATE = range(4)
 ROW_COLUMNS = HEADERS  # Adobe's own names: Filename, Title, Keywords, Category, Releases
 ROW_FIELDS = ("name", "title", "keywords", "category", None)  # Releases cannot be sorted
 COL_FILENAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RELEASES = range(5)
@@ -74,6 +75,17 @@ def rows_text(entry: csv_batches.CsvEntry) -> str:
     return text
 
 
+def waiting_text(entry: csv_batches.CsvEntry) -> str:
+    """Why the batch cannot be marked as sent: the files that are not on SFTP yet, with their statuses."""
+    if not entry.waiting:
+        return ""
+    left = ", ".join(f"{view_of(status).label}: {count}" for status, count in entry.waiting)
+    return (
+        f"Нельзя отметить отправленным: батч {entry.batch_id} ({entry.batch_name}) "
+        f"загружен не полностью, ещё {left}."
+    )
+
+
 def row_sort_key(field: str):
     if field == "name":
         return lambda row: row["filename"].lower()
@@ -87,6 +99,8 @@ def row_sort_key(field: str):
 def entry_sort_key(field: str):
     if field == "name":
         return lambda entry: entry.name.lower()
+    if field == "batch":
+        return lambda entry: entry.batch_id
     if field == "rows":
         return lambda entry: entry.rows
     return lambda entry: (ENTRY_VIEWS[entry.state].rank, entry.name.lower())
@@ -137,6 +151,9 @@ class CsvPage(TaskPage):
         self.title_label = QLabel("")
         self.title_label.setProperty("role", "heading")
         self.subtitle = QLabel("")
+        self.send_hint = QLabel("")  # why «Отметить отправленным» is not available
+        self.send_hint.setProperty("role", "warn")
+        self.send_hint.setWordWrap(True)
         self.subtitle.setProperty("role", "muted")
         self.pager = Pager()
         self.pager.page_selected.connect(self._go_page)
@@ -179,6 +196,7 @@ class CsvPage(TaskPage):
         titles.setSpacing(2)
         titles.addWidget(self.title_label)
         titles.addWidget(self.subtitle)
+        titles.addWidget(self.send_hint)
         autosave = QLabel("Сохраняется автоматически")
         autosave.setProperty("role", "muted")
         right_head = QHBoxLayout()
@@ -205,6 +223,7 @@ class CsvPage(TaskPage):
         header = table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(COL_BATCH, BATCH_COLUMN_WIDTH)
         table.setColumnWidth(COL_ROWS, 60)
         table.setColumnWidth(COL_STATE, 130)
         table.itemSelectionChanged.connect(self._file_selected)
@@ -261,6 +280,10 @@ class CsvPage(TaskPage):
             name.setFont(mono_font())
             name.setData(Qt.ItemDataRole.UserRole, entry.batch_id)
             self.files.setItem(index, COL_NAME, name)
+            name.setToolTip(entry.name)
+            batch = read_only(QTableWidgetItem(entry.batch_name))
+            batch.setToolTip(f"Батч {entry.batch_id}: {entry.folder}, часть {entry.part}")
+            self.files.setItem(index, COL_BATCH, batch)
             self.files.setItem(index, COL_ROWS, read_only(QTableWidgetItem(str(entry.rows))))
             self.files.setCellWidget(index, COL_STATE, view_cell(ENTRY_VIEWS[entry.state]))
             if entry.batch_id == self._batch:
@@ -329,7 +352,11 @@ class CsvPage(TaskPage):
         self.add_button.setEnabled(idle and bool(self._offered))
         self.add_hint.setVisible(not self._offered)
         self.build_button.setEnabled(idle and entry is not None and entry.state != csv_batches.SENT)
-        self.sent_button.setEnabled(idle and entry is not None and entry.state == csv_batches.BUILT)
+        can_send = entry is not None and entry.state == csv_batches.BUILT and not entry.waiting
+        self.sent_button.setEnabled(idle and can_send)
+        hint = waiting_text(entry) if entry is not None and entry.state != csv_batches.SENT else ""
+        self.send_hint.setText(hint)
+        self.send_hint.setVisible(bool(hint))
 
     def _set_running(self, running: bool) -> None:
         super()._set_running(running)
@@ -442,6 +469,11 @@ class CsvPage(TaskPage):
 
     def _marked(self, report: object) -> None:
         if not isinstance(report, services.SubmittedReport):
+            return
+        if report.refused:
+            left = ", ".join(f"{view_of(status).label}: {count}" for status, count in report.waiting)
+            self.refresh()
+            self.status.setText(f"Не отмечено: батч {self._batch} загружен не полностью, ещё {left}.")
             return
         warnings = " ".join(f"ВНИМАНИЕ {warning}." for warning in report.warnings)
         self.refresh()

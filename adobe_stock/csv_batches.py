@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from adobe_stock import state
@@ -21,6 +21,14 @@ class CsvEntry:
     rows: int
     bad_rows: int
     state: str
+    folder: str = ""
+    part: int = 0
+    waiting: tuple[tuple[str, int], ...] = ()  # (status, files) of batch files not on SFTP yet
+
+    @property
+    def batch_name(self) -> str:
+        """A short name for the batch: its folder (not the whole path) and part."""
+        return f"{self.folder} · {self.part}"
 
 
 def item_of(row: sqlite3.Row) -> Item:
@@ -46,14 +54,37 @@ def csv_rows(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
 def csv_entries(conn: sqlite3.Connection) -> list[CsvEntry]:
     """Batches with a built CSV, newest first."""
     batches = conn.execute(
-        "SELECT id, csv_path FROM batches WHERE csv_path IS NOT NULL ORDER BY id DESC"
+        "SELECT id, csv_path, folder, part FROM batches WHERE csv_path IS NOT NULL ORDER BY id DESC"
     ).fetchall()
     entries = []
     for batch in batches:
         rows = csv_rows(conn, batch["id"])
         if rows:
-            entries.append(_entry(batch["id"], Path(batch["csv_path"]), rows))
+            entry = _entry(batch["id"], Path(batch["csv_path"]), rows)
+            entries.append(
+                replace(
+                    entry,
+                    folder=Path(batch["folder"]).name,
+                    part=batch["part"],
+                    waiting=batch_waiting(conn, batch["id"]),
+                )
+            )
     return entries
+
+
+def batch_waiting(conn: sqlite3.Connection, batch_id: int) -> tuple[tuple[str, int], ...]:
+    """Files of a batch that are not uploaded yet, by status; empty when the whole batch is on SFTP.
+
+    Invalid files never get into a batch's CSV, so they do not hold the batch back.
+    """
+    done = (*CSV_FILE_STATUSES, state.INVALID)
+    marks = ",".join("?" * len(done))
+    rows = conn.execute(
+        f"SELECT status, COUNT(*) AS n FROM files WHERE batch_id = ? AND status NOT IN ({marks}) "
+        "GROUP BY status ORDER BY status",
+        (batch_id, *done),
+    ).fetchall()
+    return tuple((row["status"], row["n"]) for row in rows)
 
 
 def _entry(batch_id: int, path: Path, rows: list[sqlite3.Row]) -> CsvEntry:

@@ -1709,3 +1709,35 @@ def test_csv_page_headers_are_adobes_and_releases_is_not_cut(app, window, prefs)
     assert [t.split(" ")[0] for t in titles] == ["Filename", "Title", "Keywords", "Category", "Releases"]
     assert header.sectionSize(4) >= header.fontMetrics().horizontalAdvance("Releases")
     assert header.sectionSize(4) < 150  # still narrow
+
+
+def test_csv_page_names_the_batch_in_the_list(app, window, prefs):
+    csv_page, batch = uploaded_csv_page(app, window, prefs)
+
+    assert csv_page.files.item(0, 1).text() == "f1 · 1"
+    assert f"Батч {batch}" in csv_page.files.item(0, 1).toolTip()
+
+
+def test_csv_page_blocks_sending_a_batch_that_is_not_fully_uploaded(app, window, prefs):
+    conn = state.open_db(prefs.db_path)
+    folder = make_folder(Path(prefs.db_path).parent, "f1", ["a.jpg", "b.jpg", "c.jpg"])
+    services.scan(conn, folder.resolve(), services.find_images(folder), None, 1000)
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])  # one of three is on SFTP
+    services.build_csv(conn, 1, prefs.build_settings(with_password=False))
+    conn.close()
+    csv_page = page(window, "CSV")
+
+    csv_page.refresh()
+
+    assert not csv_page.sent_button.isEnabled()
+    assert not csv_page.send_hint.isHidden()
+    assert "батч 1 (f1 · 1) загружен не полностью" in csv_page.send_hint.text()
+    assert "Описан: 2" in csv_page.send_hint.text()
+
+
+def test_csv_page_allows_sending_a_fully_uploaded_batch(app, window, prefs):
+    csv_page, _ = uploaded_csv_page(app, window, prefs)
+
+    csv_page.refresh()
+
+    assert csv_page.sent_button.isEnabled() and csv_page.send_hint.isHidden()

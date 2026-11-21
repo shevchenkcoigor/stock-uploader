@@ -15,7 +15,7 @@ from pathlib import Path
 
 import paramiko
 
-from adobe_stock import backup, caption, state
+from adobe_stock import backup, caption, csv_batches, state
 from adobe_stock.metadata_csv import (
     Item,
     check_items,
@@ -463,10 +463,24 @@ def build_csv(
 class SubmittedReport:
     count: int
     warnings: tuple[str, ...]
+    waiting: tuple[tuple[str, int], ...] = ()  # set when refused: files of the batch not uploaded yet
+
+    @property
+    def refused(self) -> bool:
+        return bool(self.waiting)
 
 
 def mark_submitted(conn: sqlite3.Connection, batch: int) -> SubmittedReport:
-    """Record that the batch was uploaded and submitted in the portal (a manual step)."""
+    """Record that the batch was uploaded and submitted in the portal (a manual step).
+
+    Refused while some files of the batch are not on SFTP yet: the portal CSV would not cover them.
+    """
+    waiting = csv_batches.batch_waiting(conn, batch)
+    if waiting:
+        state.log_event(
+            conn, "submitted", f"batch {batch}: refused, not uploaded yet: {dict(waiting)}", "warning"
+        )
+        return SubmittedReport(0, (), waiting)
     warnings: list[str] = []
     csv_path = state.recorded_csv_path(conn, batch)
     if csv_path is None:
