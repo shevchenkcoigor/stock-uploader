@@ -26,7 +26,7 @@ from adobe_stock.gui.category_delegate import CategoryDelegate
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import category_name
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_click
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_double_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager
 from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell, view_of
@@ -245,7 +245,7 @@ class CsvPage(TaskPage):
         header.setSectionResizeMode(COL_TITLE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_KEYWORDS, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(COL_FILENAME, 180)
-        open_on_click(table, [COL_FILENAME], self._file_missing)
+        open_on_double_click(table, [COL_FILENAME], self._file_missing)
         table.setColumnWidth(COL_CATEGORY, 150)
         header.setSectionResizeMode(COL_RELEASES, QHeaderView.ResizeMode.Fixed)
         # always empty (AI images have no releases): as narrow as the full word «Releases» allows

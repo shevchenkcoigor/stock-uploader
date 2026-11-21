@@ -23,7 +23,7 @@ from adobe_stock import services, state
 from adobe_stock.gui import upload_queue as queue
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.description_page import format_size
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_on_click
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_on_double_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell
@@ -136,7 +136,7 @@ class UploadPage(TaskPage):
         for column, width in ((COL_SIZE, 100), (COL_PROGRESS, 240), (COL_STATUS, 150)):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
             table.setColumnWidth(column, width)
-        open_on_click(table, [COL_NAME])
+        open_on_double_click(table, [COL_NAME])
         attach_file_menu(table, lambda pos: self._path_at(table, pos))
         return table
 

@@ -61,12 +61,12 @@ def _on_check_box(table: QTableWidget, row: int, column: int) -> bool:
     return cell.contains(click) and click.x() - cell.left() < CHECK_ZONE
 
 
-def open_on_click(
+def open_on_double_click(
     table: QTableWidget,
     columns: Sequence[int] | None = None,
     on_missing: Callable[[str], None] | None = None,
 ) -> None:
-    """A click on a picture or its name opens the file; `columns` limits it (all cells when None).
+    """A double-click on a picture or its name opens the file; `columns` limits it (all cells when None).
 
     The path is read from FILE_PATH_ROLE of the row's first cell, so a row needs only that one item.
     """
@@ -81,4 +81,4 @@ def open_on_click(
         if not open_file(path) and on_missing is not None:
             on_missing(path)
 
-    table.cellClicked.connect(clicked)
+    table.cellDoubleClicked.connect(clicked)

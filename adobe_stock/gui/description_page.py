@@ -37,7 +37,7 @@ from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
 from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.empty_cell import EmptyCellDelegate
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_click
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file, open_on_double_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import chip, chip_html, dot_icon, drop_cell_widgets, status_cell, view_of
@@ -291,7 +291,7 @@ class DescriptionPage(TaskPage):
         self.tiles.itemDoubleClicked.connect(lambda item: open_file(item.data(FILE_PATH_ROLE) or ""))
         attach_file_menu(self.tiles, lambda pos: self._path_of(self.tiles.itemAt(pos)))
         attach_file_menu(self.table, lambda pos: self._path_of(self._name_item(self.table.itemAt(pos))))
-        open_on_click(self.table, [COL_NAME])
+        open_on_double_click(self.table, [COL_NAME])
 
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)

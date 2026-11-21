@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from adobe_stock import services, state
 from adobe_stock.gui.context import AppContext
-from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_on_click
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_on_double_click
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import drop_cell_widgets, status_cell, view_of
@@ -220,7 +220,7 @@ class ScanPage(TaskPage):
             self.table, PROBLEM_COLUMNS, SORT_FIELDS, field="status", descending=False, on_change=self._sorted
         )
         attach_file_menu(self.table, self._path_at)
-        open_on_click(self.table)
+        open_on_double_click(self.table)
         column.addWidget(self.table, 1)
         self.pager = Pager()
         self.pager.page_selected.connect(self._go_page)
