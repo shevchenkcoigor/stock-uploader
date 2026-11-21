@@ -324,20 +324,17 @@ def all_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-EDITABLE_STATUSES = (NEEDS_METADATA, PENDING)
+# What the Description page lists and lets a person edit: new, described, flagged for review, uploaded.
+# Invalid files stay on the scan page; submitted ones are final.
+EDITABLE_STATUSES = (NEEDS_METADATA, PENDING, REVIEW, UPLOADED)
 
 
 def files_to_describe(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Files a person may still describe: new or described, and in no batch.
-
-    Files flagged for review and invalid ones are not for describing.
-
-    A file in a batch is planned, being uploaded or already sent, so it is not described again.
-    """
+    """Files shown on the Description page: new, described, flagged for review and uploaded ones."""
     marks = ",".join("?" * len(EDITABLE_STATUSES))
     return conn.execute(
         "SELECT filename, path, size, title, keywords, category, status, error, updated_at "
-        f"FROM files WHERE batch_id IS NULL AND status IN ({marks}) ORDER BY id",
+        f"FROM files WHERE status IN ({marks}) ORDER BY id",
         EDITABLE_STATUSES,
     ).fetchall()
 
@@ -347,14 +344,14 @@ def update_metadata(
 ) -> bool:
     """Save a person's edit. A file waiting for metadata becomes pending once it has a title and keywords.
 
-    Only files that may still be described: nothing in a batch, uploaded, sent or invalid.
+    Only the statuses in EDITABLE_STATUSES: not invalid ones and not those already submitted.
     """
     marks = ",".join("?" * len(EDITABLE_STATUSES))
     with conn:
         changed = conn.execute(
             "UPDATE files SET title = ?, keywords = ?, category = ?, updated_at = ?, "
             "status = CASE WHEN status = ? AND ? != '' AND ? != '[]' THEN ? ELSE status END "
-            f"WHERE filename = ? AND batch_id IS NULL AND status IN ({marks})",
+            f"WHERE filename = ? AND status IN ({marks})",
             (
                 title,
                 json.dumps(list(keywords)),
@@ -387,8 +384,7 @@ def bulk_edit(
     with conn:
         for filename in filenames:
             row = conn.execute(
-                "SELECT title, keywords, category FROM files "
-                f"WHERE filename = ? AND batch_id IS NULL AND status IN ({marks})",
+                f"SELECT title, keywords, category FROM files WHERE filename = ? AND status IN ({marks})",
                 (filename, *EDITABLE_STATUSES),
             ).fetchone()
             if row is None:

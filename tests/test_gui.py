@@ -112,12 +112,14 @@ def test_full_flow_through_the_pages(app, window, prefs, tmp_path, monkeypatch):
     assert "famous logo" in description.output.toPlainText()
 
     description.refresh()
-    # the captioned file got a batch at once and the flagged one is not for describing: nothing is listed
-    assert description.table.rowCount() == 0
+    # the captioned file is "Описан" and the flagged one "Проверить": both stay on the page
+    assert description.table.rowCount() == 2
+    assert sorted(cell_status(description.table, r) for r in range(2)) == ["Описан", "Проверить"]
     description._approve(None)
     finish(app, description)
     description.refresh()
-    assert description.table.rowCount() == 0
+    assert description.table.rowCount() == 2
+    assert {cell_status(description.table, r) for r in range(2)} == {"Описан"}
     conn = state.open_db(prefs.db_path)
     assert {row["status"] for row in conn.execute("SELECT status FROM files")} == {"pending"}
     conn.close()
@@ -652,7 +654,7 @@ def test_description_and_scan_tables_share_the_white_surface_background(app, win
         )
 
 
-def test_only_new_or_described_files_outside_any_batch_are_listed_for_describing(tmp_path):
+def test_new_described_flagged_and_uploaded_files_are_listed_for_describing(tmp_path):
     conn = state.open_db(tmp_path / "d.db")
     conn.execute("INSERT INTO batches (id, folder, part, created_at) VALUES (1, 'f', 1, 'now')")
     rows = (
@@ -674,15 +676,20 @@ def test_only_new_or_described_files_outside_any_batch_are_listed_for_describing
     assert [row["filename"] for row in state.files_to_describe(conn)] == [
         "new.jpg",
         "described.jpg",
-    ]
+        "held.jpg",
+        "planned.jpg",
+        "sending.jpg",
+    ]  # not the submitted one, not the invalid one
 
     assert state.update_metadata(conn, "new.jpg", "T", ("a",), "") is True
-    for name in ("held.jpg", "planned.jpg", "sending.jpg", "sent.jpg", "bad.jpg"):  # never described again
+    for name in ("held.jpg", "planned.jpg", "sending.jpg"):
+        assert state.update_metadata(conn, name, "Other", ("b",), "") is True
+    for name in ("sent.jpg", "bad.jpg"):  # final or invalid: never edited
         assert state.update_metadata(conn, name, "Other", ("b",), "") is False
     assert conn.execute("SELECT title FROM files WHERE filename = 'sent.jpg'").fetchone()[0] == ""
 
 
-def test_saving_a_file_that_is_already_in_a_batch_is_refused_with_a_message(app, window, prefs):
+def test_saving_a_file_that_was_submitted_meanwhile_is_refused_with_a_message(app, window, prefs):
     seed_files(prefs, ["a.jpg"])
     window.nav.setCurrentRow(1)  # the description page is the visible one, so it refreshes with the data
     description = page(window, "Описание")
@@ -690,12 +697,12 @@ def test_saving_a_file_that_is_already_in_a_batch_is_refused_with_a_message(app,
     description.table.selectRow(0)
     conn = state.open_db(prefs.db_path)
     conn.execute("INSERT INTO batches (id, folder, part, created_at) VALUES (1, 'f', 1, 'now')")
-    conn.execute("UPDATE files SET batch_id = 1, status = 'uploaded'")  # it moved on behind the page's back
+    conn.execute("UPDATE files SET batch_id = 1, status = 'submitted'")  # it moved on behind the page's back
     conn.commit()
     description.title_edit.setText("Late edit")
     description._save_panel()
     app.processEvents()
-    assert "уже в батче" in description.output.toPlainText()
+    assert "уже отправлен" in description.output.toPlainText()
     assert conn.execute("SELECT title FROM files").fetchone()[0] == ""
     assert description.table.rowCount() == 0  # and the list caught up
 
@@ -950,7 +957,9 @@ def test_caption_describes_only_the_marked_files_and_everything_when_none_marked
     assert {name for name, title in titles.items() if title} == {names[1], names[3]}
     assert "Подписано: 2 из 2" in description.output.toPlainText()
 
-    description.refresh()  # the described ones went to a batch; the rest are still new and nothing is marked
+    description.refresh()  # the described ones stay listed (and marked); the rest are still new
+    description._toggle_all()  # not all were marked, so this marks everything ...
+    description._toggle_all()  # ... and this clears the marks
     assert description.run_button.text() == "✦ Caption"
     description._run_caption()
     finish(app, description)

@@ -141,7 +141,7 @@ class DescriptionPage(TaskPage):
 
         self.status_filter = make_combo()
         self.status_filter.addItem("Все статусы", FILTER_ALL)
-        for key in (state.NEEDS_METADATA, state.PENDING):
+        for key in (state.NEEDS_METADATA, state.PENDING, state.REVIEW, state.UPLOADED):
             self.status_filter.addItem(view_of(key).label, key)
         self.status_filter.currentIndexChanged.connect(self._filters_changed)
         head.addWidget(self.status_filter)
@@ -349,8 +349,7 @@ class DescriptionPage(TaskPage):
 
     def refresh(self) -> None:
         try:
-            # only what can still be described: invalid files stay on the scan page, files in a batch are
-            # planned, uploading or sent already
+            # new, described, flagged for review and uploaded files; invalid ones stay on the scan page
             self._rows = self.ctx.read(state.files_to_describe)
         except services.StateDbError as error:
             self.status.setText(str(error))
@@ -726,7 +725,7 @@ class DescriptionPage(TaskPage):
             self.write(f"ОШИБКА: не удалось сохранить {filename}: {error}")
             return
         if not saved:
-            self.write(f"Не сохранено: {filename} уже в батче или отправлен, его не описывают повторно.")
+            self.write(f"Не сохранено: {filename} уже отправлен или не подлежит описанию, его не правят.")
             QTimer.singleShot(0, self.ctx.data_changed.emit)
             return
         self.status.setText(f"Сохранено: {filename}")
