@@ -10,6 +10,7 @@ from adobe_stock import state
 from adobe_stock.gui.theme import active_colors
 
 DOT_SIDE = 10
+CHIP_HEIGHT = 24
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ def chip(status: str) -> QLabel:
     """A pill with a coloured dot and the status word, for table cells."""
     label = QLabel(chip_html(status))
     label.setProperty("role", "chip")
+    label.setFixedHeight(CHIP_HEIGHT)  # a pill of its own height, however tall the row is
     label.setTextFormat(Qt.TextFormat.RichText)
     return label
 
