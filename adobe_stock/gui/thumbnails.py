@@ -29,6 +29,7 @@ DOT_MARGIN = 3
 GLYPH_SHARE = 0.44  # the placeholder glyph covers this part of the tile
 GLYPH_STROKE = 1.5
 CACHE_SIZE = 512
+RESOLUTION_CACHE = 50_000
 
 
 @lru_cache(maxsize=CACHE_SIZE)
@@ -88,6 +89,13 @@ def _draw_dot(painter: QPainter, pixels: int, colors, token: str) -> None:
     )  # the border keeps it readable on any picture
     painter.setBrush(QColor(colors[token]))
     painter.drawEllipse(QRectF(pixels - diameter - margin, margin, diameter, diameter))
+
+
+@lru_cache(maxsize=RESOLUTION_CACHE)
+def image_size(path: str) -> tuple[int, int]:
+    """Width and height in pixels from the file header (no decoding); (0, 0) when unreadable."""
+    size = QImageReader(path).size()
+    return (size.width(), size.height()) if size.isValid() else (0, 0)
 
 
 def tile_icon(path: str, side: int, badge: str = "") -> QIcon:

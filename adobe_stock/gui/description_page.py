@@ -5,7 +5,6 @@ import sqlite3
 from typing import cast
 
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QTimer
-from PySide6.QtGui import QImageReader
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -28,6 +27,7 @@ from PySide6.QtWidgets import (
 from adobe_stock import caption, services, state
 from adobe_stock.categories import CATEGORIES
 from adobe_stock.gui.bulk_bar import BulkBar
+from adobe_stock.gui.category_delegate import CategoryDelegate, category_code
 from adobe_stock.gui.check_header import install_check_header
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
@@ -36,7 +36,7 @@ from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import chip, chip_html, drop_cell_widgets, status_cell, view_of
 from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
-from adobe_stock.gui.thumbnails import thumbnail_pixmap, tile_icon
+from adobe_stock.gui.thumbnails import image_size, thumbnail_pixmap, tile_icon
 from adobe_stock.gui.view_icons import grid_icon, list_icon
 from adobe_stock.gui.widgets import make_combo, mono_font
 
@@ -50,9 +50,17 @@ PANEL_WIDTH = 320
 LIST_PAGE_SIZE = 20
 TILES_PAGE_SIZE = 60
 BYTES_IN_MB = 1024 * 1024
-COLUMNS = ("Имя", "Заголовок", "Ключевые слова", "Категория", "Размер", "Статус")
-COL_NAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_SIZE, COL_STATUS = range(len(COLUMNS))
-HEADER_FIELDS = ("name", "title", "keywords", "category", "size", "status")  # the sort field of each column
+COLUMNS = ("Имя", "Заголовок", "Ключевые слова", "Категория", "Разрешение", "Размер", "Статус")
+COL_NAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_RESOLUTION, COL_SIZE, COL_STATUS = range(len(COLUMNS))
+HEADER_FIELDS = (
+    "name",
+    "title",
+    "keywords",
+    "category",
+    "resolution",
+    "size",
+    "status",
+)  # the sort field of each column
 FILTER_ALL = "all"
 
 
@@ -63,12 +71,18 @@ def category_name(code: str) -> str:
 
 def resolution_text(path: str) -> str:
     """Pixel size of the picture ("6000 × 4000 px"); empty when it cannot be read."""
-    size = QImageReader(path).size()
-    return f"{size.width()} × {size.height()} px" if size.isValid() else ""
+    width, height = image_size(path)
+    return f"{width} × {height} px" if width and height else ""
 
 
 def format_size(size: int) -> str:
     return f"{size / BYTES_IN_MB:.1f}".replace(".", ",") + " МБ"
+
+
+def _resolution_key(row: sqlite3.Row) -> tuple[int, int]:
+    """More pixels sort later; unreadable files (0 pixels) come first."""
+    width, height = image_size(row["path"])
+    return (width * height, width)
 
 
 def sort_key(field: str):
@@ -80,6 +94,8 @@ def sort_key(field: str):
         return lambda row: (row["keywords"] == "[]", row["keywords"].lower())
     if field == "category":
         return lambda row: (not row["category"], category_name(row["category"]).lower())
+    if field == "resolution":
+        return _resolution_key
     if field == "size":
         return lambda row: row["size"]
     return lambda row: (view_of(row["status"]).rank, row["filename"].lower())
@@ -199,8 +215,10 @@ class DescriptionPage(TaskPage):
         )
         self._fit_name_column()
         self.table.setColumnWidth(COL_CATEGORY, 150)
+        self.table.setColumnWidth(COL_RESOLUTION, 120)
         self.table.setColumnWidth(COL_SIZE, 80)
-        self.table.setColumnWidth(COL_STATUS, 110)
+        self.table.setItemDelegateForColumn(COL_CATEGORY, CategoryDelegate(self.table))
+        self.table.setColumnWidth(COL_STATUS, 130)
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.table.itemChanged.connect(self._cell_edited)
         self.table.itemChanged.connect(self._table_check_changed)
@@ -423,9 +441,11 @@ class DescriptionPage(TaskPage):
         self.table.setItem(index, COL_KEYWORDS, QTableWidgetItem(", ".join(json.loads(row["keywords"]))))
         size = QTableWidgetItem(format_size(row["size"]))
         size.setFlags(size.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        category = QTableWidgetItem(category_name(row["category"]))
-        category.setFlags(category.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.table.setItem(index, COL_CATEGORY, category)
+        self.table.setItem(index, COL_CATEGORY, QTableWidgetItem(category_name(row["category"])))  # editable
+        width, height = image_size(row["path"])
+        resolution = QTableWidgetItem(f"{width} × {height}" if width and height else "")
+        resolution.setFlags(resolution.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.table.setItem(index, COL_RESOLUTION, resolution)
         self.table.setItem(index, COL_SIZE, size)
         status = QTableWidgetItem()  # the chip below is the visible part; the label stays readable here
         status.setData(Qt.ItemDataRole.AccessibleTextRole, view_of(row["status"]).label)
@@ -701,7 +721,7 @@ class DescriptionPage(TaskPage):
         self._save(self._selected, title, keywords, category)
 
     def _cell_edited(self, item: QTableWidgetItem) -> None:
-        if self._loading or item.column() not in (COL_TITLE, COL_KEYWORDS):
+        if self._loading or item.column() not in (COL_TITLE, COL_KEYWORDS, COL_CATEGORY):
             return
         rows = self._current_rows()
         if not 0 <= item.row() < len(rows):
@@ -713,7 +733,9 @@ class DescriptionPage(TaskPage):
             return
         title = title_item.text().strip()
         keywords = parse_keywords(keywords_item.text())
-        self._save(row["filename"], title, keywords, row["category"])
+        category_item = self.table.item(item.row(), COL_CATEGORY)
+        category = category_code(category_item.text()) if category_item is not None else row["category"]
+        self._save(row["filename"], title, keywords, category)
 
     def _save(self, filename: str, title: str, keywords: tuple[str, ...], category: str) -> None:
         def work(conn, progress, should_stop):

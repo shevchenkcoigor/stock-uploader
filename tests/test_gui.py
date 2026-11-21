@@ -579,15 +579,15 @@ def test_description_sorts_only_by_the_table_headers(app, window, prefs):
     description.sorter.click(0)
     assert [description.table.item(r, 0).text() for r in range(3)] == ["c.jpg", "b.jpg", "a.jpg"]
     assert header_labels(description.table)[0] == "Имя ↓"
-    description.sorter.click(4)  # size
+    description.sorter.click(5)  # size
     assert (
-        header_labels(description.table)[4] == "Размер ↑" and header_labels(description.table)[0] == "Имя ↕"
+        header_labels(description.table)[5] == "Размер ↑" and header_labels(description.table)[0] == "Имя ↕"
     )
 
 
 def cell_status(table, row: int) -> str:
     """The status word of a row (the chip shows it; the item keeps it readable)."""
-    return table.item(row, 5).data(Qt.ItemDataRole.AccessibleTextRole)
+    return table.item(row, 6).data(Qt.ItemDataRole.AccessibleTextRole)
 
 
 def test_tag_editor_adds_removes_renames_and_deduplicates(app):
@@ -832,7 +832,7 @@ def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
     assert not description.bulk_bar.isHidden() and description.bulk_bar.count_label.text() == "Выбрано 0"
     description.table.selectRow(0)
     assert not description.bulk_bar.apply_button.isEnabled()  # one file is edited in the side panel
-    description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 2, 5), True)
+    description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 2, 6), True)
     assert description.bulk_bar.apply_button.isEnabled()
     assert description.bulk_bar.count_label.text() == "Выбрано 3"
 
@@ -1051,3 +1051,53 @@ def test_thumbnail_size_buttons_resize_rows_and_tiles_and_are_remembered(app, wi
 
     reopened = type(description)(AppContext(prefs))
     assert reopened.size_buttons["L"].isChecked()  # the last choice comes back
+
+
+def test_category_is_edited_in_the_list_row_and_saved_by_code(app, window, prefs):
+    from PySide6.QtWidgets import QComboBox
+
+    from adobe_stock.categories import CATEGORIES
+
+    seed_files(prefs, ["a.jpg", "b.jpg"])
+    window.nav.setCurrentRow(1)
+    window.show()
+    description = page(window, "Описание")
+    description.refresh()
+    cell = description.table.model().index(0, 3)
+    description.table.edit(cell)  # what a double-click does
+    editor = description.table.findChild(QComboBox, options=Qt.FindChildOption.FindChildrenRecursively)
+    assert editor is not None and editor.itemText(0) == "—"
+    choice = editor.findText(CATEGORIES[5])
+    editor.setCurrentIndex(choice)
+    editor.activated.emit(choice)  # picking an entry commits the edit
+    app.processEvents()
+    conn = state.open_db(prefs.db_path)
+    stored = conn.execute("SELECT category FROM files ORDER BY id").fetchall()
+    assert [row[0] for row in stored] == ["5", ""]  # the code is stored, never the name
+    assert description.table.item(0, 3).text() == CATEGORIES[5]
+
+    from adobe_stock.gui.category_delegate import category_code
+
+    assert category_code(CATEGORIES[5]) == "5" and category_code("") == "" and category_code("nope") == ""
+
+
+def test_resolution_column_shows_pixels_and_sorts_by_them(app, window, prefs, tmp_path):
+    from PIL import Image
+
+    folder = prefs.db_path.parent / "imgs"
+    folder.mkdir(parents=True, exist_ok=True)
+    sizes = {"small.jpg": (40, 30), "big.jpg": (400, 300), "mid.jpg": (200, 100)}
+    for name, side in sizes.items():
+        Image.new("RGB", side).save(folder / name, "JPEG")
+    seed_files(prefs, list(sizes))
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    shown = {description.table.item(r, 0).text(): description.table.item(r, 4).text() for r in range(3)}
+    assert shown == {"small.jpg": "40 × 30", "big.jpg": "400 × 300", "mid.jpg": "200 × 100"}
+    assert header_labels(description.table)[4].startswith("Разрешение")
+
+    description.sorter.click(4)
+    assert [description.table.item(r, 0).text() for r in range(3)] == ["small.jpg", "mid.jpg", "big.jpg"]
+    description.sorter.click(4)
+    assert [description.table.item(r, 0).text() for r in range(3)] == ["big.jpg", "mid.jpg", "small.jpg"]
