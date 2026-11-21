@@ -1556,3 +1556,45 @@ def test_title_is_saved_after_a_pause_and_a_refresh_does_not_overwrite_typing(ap
     assert description.title_edit.text() == "Half typed"
     description._autosave_timer.timeout.emit()  # the pause is over
     assert stored_row(prefs, "a.jpg")["title"] == "Half typed"
+
+
+def uploadable_batch(prefs, tmp_path, names):
+    folder = make_unlabelled_folder(tmp_path, names)
+    services.scan(state.open_db(prefs.db_path), folder.resolve(), services.find_images(folder), None, 1000)
+    conn = state.open_db(prefs.db_path)
+    for item in state.files_needing_metadata(conn, 10):
+        state.set_metadata(conn, item, "T", ("k",))
+    state.assign_batches(conn, 1000)
+
+
+def test_upload_page_lists_the_queue_of_the_batch(app, window, prefs, tmp_path):
+    uploadable_batch(prefs, tmp_path, ["a.jpg", "b.jpg"])
+    upload_page = page(window, "Загрузка")
+
+    upload_page.refresh()
+
+    assert upload_page.files.rowCount() == 2
+    assert upload_page.summary.text() == "0 из 2 загружено"
+    assert upload_page.run_button.isEnabled() and not upload_page.retry_button.isEnabled()
+
+
+def test_a_failed_file_is_shown_as_an_error_and_can_be_retried(app, window, prefs, tmp_path, monkeypatch):
+    uploadable_batch(prefs, tmp_path, ["a.jpg", "b.jpg"])
+
+    def one_fails(settings, files, on_success, on_failure, should_stop):
+        on_success(files[0][0])
+        on_failure(files[1][1], "timed out")
+        return [files[1][1]]
+
+    monkeypatch.setattr(services, "upload_files", one_fails)
+    prefs.set_text("sftp_user", "me")
+    upload_page = page(window, "Загрузка")
+    upload_page.refresh()
+
+    upload_page._run()
+    finish(app, upload_page)
+
+    assert upload_page.summary.text() == "1 из 2 загружено · 1 ошибка"
+    assert upload_page.files.rowCount() == 2  # the queue keeps the uploaded file and the failed one
+    assert upload_page.retry_button.isEnabled()
+    assert "есть ошибки" in upload_page.status.text()

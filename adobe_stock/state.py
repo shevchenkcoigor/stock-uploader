@@ -524,6 +524,13 @@ def pending_batches(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def batch_files(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
+    """Every file of a batch with its status, in upload order: what the upload page lists."""
+    return conn.execute(
+        "SELECT path, filename, status, size, error FROM files WHERE batch_id = ? ORDER BY id", (batch_id,)
+    ).fetchall()
+
+
 def mark_uploaded(conn: sqlite3.Connection, path: Path) -> None:
     with conn:
         conn.execute(

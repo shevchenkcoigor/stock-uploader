@@ -327,6 +327,7 @@ def upload_batch(
     total = len(files)
     state.log_event(conn, "upload", f"batch {batch}: started, {total} files")
     remote_names = dict(files)
+    path_by_name = {name: path for path, name in files}
     counts = {"done": 0, "uploaded": 0}
     errors_by_name: dict[str, str] = {}
 
@@ -339,6 +340,9 @@ def upload_batch(
 
     def on_failure(remote_name: str, error: str) -> None:
         errors_by_name[remote_name] = error
+        state.record_error(
+            conn, path_by_name[remote_name], error
+        )  # the upload page shows it as a failed file
         counts["done"] += 1
         on_progress(counts["done"], total, f"FAILED {remote_name}: {error}")
 

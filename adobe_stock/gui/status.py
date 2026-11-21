@@ -47,14 +47,21 @@ def dot_icon(token: str) -> QIcon:
     return QIcon(pixmap)
 
 
-def chip_html(status: str) -> str:
-    view = view_of(status)
+def view_html(view: StatusView) -> str:
     return f'<span style="color:{active_colors()[view.token]}">●</span> {view.label}'
+
+
+def chip_html(status: str) -> str:
+    return view_html(view_of(status))
 
 
 def chip(status: str) -> QLabel:
     """A pill with a coloured dot and the status word, for table cells."""
-    label = QLabel(chip_html(status))
+    return view_chip(view_of(status))
+
+
+def view_chip(view: StatusView) -> QLabel:
+    label = QLabel(view_html(view))
     label.setProperty("role", "chip")
     label.setFixedHeight(CHIP_HEIGHT)  # a pill of its own height, however tall the row is
     label.setTextFormat(Qt.TextFormat.RichText)
@@ -63,10 +70,14 @@ def chip(status: str) -> QLabel:
 
 def status_cell(status: str) -> QWidget:
     """A table cell with the status chip on the left."""
+    return view_cell(view_of(status))
+
+
+def view_cell(view: StatusView) -> QWidget:
     holder = QWidget()
     inner = QHBoxLayout(holder)
     inner.setContentsMargins(8, 4, 8, 4)
-    inner.addWidget(chip(status), 0, Qt.AlignmentFlag.AlignVCenter)  # not stretched over a tall row
+    inner.addWidget(view_chip(view), 0, Qt.AlignmentFlag.AlignVCenter)  # not stretched over a tall row
     inner.addStretch(1)
     return holder
 
