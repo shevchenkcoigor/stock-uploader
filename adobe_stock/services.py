@@ -172,7 +172,11 @@ class CaptionReport:
 
 
 def _store_results(
-    conn: sqlite3.Connection, results: list[caption.CaptionResult], errors: list[str], flagged: list[str]
+    conn: sqlite3.Connection,
+    results: list[caption.CaptionResult],
+    errors: list[str],
+    flagged: list[str],
+    redo: bool = False,
 ) -> int:
     stored = 0
     for result in results:
@@ -197,6 +201,7 @@ def _store_results(
             result.people_visible,
             result.content_type,
             result.review_reason,
+            redo=redo,
         )
         if result.review_reason:
             state.log_event(conn, "caption", result.review_reason, "warning", result.path.name)
@@ -215,11 +220,15 @@ def caption_files(
     workers: int = 1,
     batch_size: int = DEFAULT_BATCH_SIZE,
     names: list[str] | None = None,
+    redo: bool = False,
     on_progress: ProgressCallback = _ignore_progress,
     should_stop: StopCheck = _never,
 ) -> CaptionReport:
-    """Generate titles and keywords for files that have none (only `names` if given), then batch them."""
-    todo = state.files_needing_metadata(conn, limit, names)
+    """Generate titles and keywords for files that have none (only `names` if given), then batch them.
+
+    With `redo` the described files among `names` are captioned again and their text is replaced.
+    """
+    todo = state.files_needing_metadata(conn, limit, names, redo=redo)
     if not todo:
         return CaptionReport(0, 0, (), (), 0)
     groups = [todo[i : i + per_call] for i in range(0, len(todo), per_call)]
@@ -244,7 +253,7 @@ def caption_files(
                     state.log_event(conn, "caption", str(error), "error")
                 else:
                     failed_calls = 0
-                    captioned += _store_results(conn, results, errors, flagged)
+                    captioned += _store_results(conn, results, errors, flagged, redo)
                 done += len(group)
                 on_progress(done, len(todo), f"{done} of {len(todo)} files")
             if failed_calls >= MAX_CONSECUTIVE_CALL_FAILURES:

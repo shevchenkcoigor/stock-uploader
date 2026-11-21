@@ -156,8 +156,8 @@ class DescriptionPage(TaskPage):
         head.addWidget(self.model)
         self.run_button = self.add_action(QPushButton("✦ Caption"))
         self.run_button.setToolTip(
-            "Заголовок, ключевые слова и категория: для отмеченных файлов, а если ничего не отмечено, "
-            "для всех файлов без описания"
+            "Заголовок, ключевые слова и категория: для отмеченных файлов (уже описанные подписываются "
+            "заново), а если ничего не отмечено, для всех новых файлов"
         )
         self.run_button.clicked.connect(lambda: self._run_caption())
         head.addWidget(self.run_button)
@@ -317,7 +317,7 @@ class DescriptionPage(TaskPage):
         caption_row.addWidget(self.card_model, 1)
         self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
         self.card_caption_button.setProperty("primary", True)
-        self.card_caption_button.setToolTip("Описать только этот файл")
+        self.card_caption_button.setToolTip("Описать только этот файл (описанный подписывается заново)")
         self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
         caption_row.addWidget(self.card_caption_button)
         column.addLayout(caption_row)
@@ -580,11 +580,11 @@ class DescriptionPage(TaskPage):
         return sum(1 for row in self._visible if row["filename"] in self._marked)
 
     def _marked_to_caption(self) -> list[str]:
-        """Marked files that still wait for a description: uploaded and described ones are not captioned."""
+        """Marked files that may be captioned: new, described and flagged ones, not the uploaded."""
         return [
             row["filename"]
             for row in self._visible
-            if row["filename"] in self._marked and row["status"] == state.NEEDS_METADATA
+            if row["filename"] in self._marked and row["status"] in state.RECAPTIONABLE
         ]
 
     def _check_state(self, filename: str) -> Qt.CheckState:
@@ -826,7 +826,7 @@ class DescriptionPage(TaskPage):
             return
         row = self._selected_row()
         self.approve_button.setVisible(row is not None and row["status"] == state.REVIEW)
-        self.card_caption_button.setEnabled(row is not None and row["status"] == state.NEEDS_METADATA)
+        self.card_caption_button.setEnabled(row is not None and row["status"] in state.RECAPTIONABLE)
         names = [r["filename"] for r in self._visible]
         index = names.index(self._selected) if self._selected in names else -1
         self.prev_button.setEnabled(index > 0)
@@ -926,7 +926,10 @@ class DescriptionPage(TaskPage):
                 combo.blockSignals(False)
 
     def _run_caption(self, names: list[str] | None = None) -> None:
-        """Caption `names`; without them the marked files, and with nothing marked every new file."""
+        """Caption `names`; without them the marked files, and with nothing marked every new file.
+
+        Picked files that already have a description are captioned again, after the person agrees.
+        """
         if caption.find_claude() is None:
             QMessageBox.warning(
                 self,
@@ -938,10 +941,14 @@ class DescriptionPage(TaskPage):
         model = str(self.model.currentData())
         self.ctx.prefs.set_text("model", model)
         batch_size = self.ctx.prefs.batch_size
-        # nothing marked: every new file; something marked: only the marked new ones (maybe none)
+        # nothing marked: every new file; something marked: only the marked ones that may be captioned
         targets = (
             names if names is not None else (self._marked_to_caption() if self._marked_count() else None)
         )
+        redo = targets is not None  # picked files that already have a description are replaced
+        described = self._described_among(targets)
+        if described and not self._confirm_overwrite(described):
+            return
 
         def work(conn, progress, should_stop):
             return services.caption_files(
@@ -951,17 +958,36 @@ class DescriptionPage(TaskPage):
                 per_call=services.DEFAULT_IMAGES_PER_CALL,
                 batch_size=batch_size,
                 names=targets,
+                redo=redo,
                 on_progress=progress,
                 should_stop=should_stop,
             )
 
         self.start(work, self._caption_done)
 
+    def _described_among(self, names: list[str] | None) -> int:
+        """How many of the files already have a description that captioning would replace."""
+        wanted = set(names or ())
+        return sum(
+            1 for row in self._rows if row["filename"] in wanted and row["status"] != state.NEEDS_METADATA
+        )
+
+    def _confirm_overwrite(self, count: int) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "Подписать заново?",
+            f"У файлов с описанием: {count}. Подписать их заново и заменить "
+            "заголовок, ключевые слова и категорию?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _caption_done(self, report: object) -> None:
         if not isinstance(report, services.CaptionReport):
             return
         if report.total == 0:
-            self.write("Нечего подписывать: среди выбранных нет файлов, ожидающих метаданные.")
+            self.write("Нечего подписывать: среди выбранных нет файлов, которые можно подписать.")
             self.status.setText("Нечего подписывать")
             return
         self.write(

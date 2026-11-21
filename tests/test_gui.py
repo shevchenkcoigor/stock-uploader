@@ -1174,6 +1174,78 @@ def test_caption_describes_only_the_marked_files_and_everything_when_none_marked
     assert all(titles_by_file(prefs).values())
 
 
+def test_picked_described_files_can_be_captioned_again_but_uploaded_ones_never(tmp_path):
+    conn = state.open_db(tmp_path / "d.db")
+    for name, status in (("n", "needs_metadata"), ("d", "pending"), ("r", "review"), ("u", "uploaded")):
+        insert_file(conn, f"{name}.jpg", status, "Old", '["k"]')
+    conn.commit()
+    names = ["n.jpg", "d.jpg", "r.jpg", "u.jpg"]
+
+    assert [p.name for p in state.files_needing_metadata(conn, 10)] == ["n.jpg"]
+    assert [p.name for p in state.files_needing_metadata(conn, 10, names)] == ["n.jpg"]  # not asked to redo
+    assert [p.name for p in state.files_needing_metadata(conn, 10, names, redo=True)] == [
+        "n.jpg",
+        "d.jpg",
+        "r.jpg",
+    ]
+
+    for name in ("d", "u"):
+        state.set_metadata(conn, Path(f"/x/{name}.jpg"), "New", ("fresh",), "1", redo=True)
+    title = {r["filename"]: (r["title"], r["status"]) for r in conn.execute("SELECT * FROM files")}
+    assert title["d.jpg"] == ("New", "pending")
+    assert title["u.jpg"] == ("Old", "uploaded")  # an uploaded file is never overwritten
+    state.set_metadata(conn, Path("/x/r.jpg"), "Edited meanwhile", ("fresh",))  # not a redo: only new files
+    assert title["r.jpg"][0] == "Old"
+
+
+def titles_and_statuses(prefs):
+    conn = state.open_db(prefs.db_path)
+    rows = conn.execute("SELECT filename, title, status FROM files")
+    return {r["filename"]: (r["title"], r["status"]) for r in rows}
+
+
+def mark_by_name(description, name):
+    row = next(r for r in range(description.table.rowCount()) if description.table.item(r, 0).text() == name)
+    description.table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+
+
+def test_caption_again_replaces_a_description_only_after_the_person_agrees(
+    app, window, prefs, tmp_path, monkeypatch
+):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg", "b.jpg", "c.jpg"])
+    description._run_caption()  # nothing marked: all three are new
+    finish(app, description)
+    conn = state.open_db(prefs.db_path)
+    with conn:
+        conn.execute("UPDATE files SET title = 'Mine'")
+        conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'c.jpg'")
+    description.refresh()
+
+    asked = []
+    monkeypatch.setattr(description, "_confirm_overwrite", lambda count: asked.append(count) or False)
+    description._run_caption()  # nothing marked: described files are left alone and nobody is asked
+    finish(app, description)
+    assert asked == [] and {title for title, _ in titles_and_statuses(prefs).values()} == {"Mine"}
+
+    mark_by_name(description, "a.jpg")
+    description._run_caption()  # marked and described: the person says no
+    assert asked == [1] and description._task is None
+    assert titles_and_statuses(prefs)["a.jpg"][0] == "Mine"
+
+    monkeypatch.setattr(description, "_confirm_overwrite", lambda count: True)
+    description._run_caption()  # now yes
+    finish(app, description)
+    titles = titles_and_statuses(prefs)
+    assert titles["a.jpg"][0] != "Mine" and titles["b.jpg"][0] == "Mine"  # only the picked one
+
+    mark_by_name(description, "c.jpg")  # an uploaded file is not captioned, even picked
+    monkeypatch.setattr(description, "_confirm_overwrite", lambda count: pytest.fail("nothing to replace"))
+    description._marked = {"c.jpg"}
+    description._run_caption()
+    finish(app, description)
+    assert titles_and_statuses(prefs)["c.jpg"] == ("Mine", "uploaded")
+
+
 def test_card_caption_describes_only_the_open_file_with_the_shared_model(
     app, window, prefs, tmp_path, monkeypatch
 ):

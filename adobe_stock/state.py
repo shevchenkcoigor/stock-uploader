@@ -264,19 +264,29 @@ def assign_batches(conn: sqlite3.Connection, batch_size: int | None = None) -> i
         return batch_unassigned(conn, batch_size)
 
 
+# Files that may be captioned (again) when a person picks them: new, described and flagged ones.
+# Uploaded and submitted files are never captioned.
+RECAPTIONABLE = (NEEDS_METADATA, PENDING, REVIEW)
+
+
 def files_needing_metadata(
-    conn: sqlite3.Connection, limit: int, names: list[str] | None = None
+    conn: sqlite3.Connection, limit: int, names: list[str] | None = None, *, redo: bool = False
 ) -> list[Path]:
-    """New files waiting for a title and keywords; `names` narrows it to those files (None: all of them)."""
+    """New files waiting for a title and keywords; `names` narrows it to those files (None: all of them).
+
+    With `redo` the picked files that already have a description count too (it will be replaced).
+    """
+    statuses = RECAPTIONABLE if redo and names is not None else (NEEDS_METADATA,)
+    marks = ",".join("?" * len(statuses))
     if names is None:
         rows = conn.execute(
-            "SELECT path FROM files WHERE status = ? ORDER BY id LIMIT ?", (NEEDS_METADATA, limit)
+            f"SELECT path FROM files WHERE status IN ({marks}) ORDER BY id LIMIT ?", (*statuses, limit)
         )
     else:
         rows = conn.execute(
-            "SELECT path FROM files WHERE status = ? AND filename IN (SELECT value FROM json_each(?)) "
-            "ORDER BY id LIMIT ?",
-            (NEEDS_METADATA, json.dumps(names), limit),
+            f"SELECT path FROM files WHERE status IN ({marks}) "
+            "AND filename IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT ?",
+            (*statuses, json.dumps(names), limit),
         )
     return [Path(row["path"]) for row in rows]
 
@@ -290,17 +300,22 @@ def set_metadata(
     people_visible: bool = False,
     content_type: str = "",
     review_reason: str = "",
+    *,
+    redo: bool = False,
 ) -> None:
     """Attach generated metadata.
 
     The file becomes pending (ready to be batched), unless review_reason is set: then it goes to
-    `review` and stays out of batches until a person approves it.
+    `review` and stays out of batches until a person approves it. Only a new file is filled in, so what a
+    person edited meanwhile is never overwritten; with `redo` a described or flagged file is replaced too.
     """
     status = REVIEW if review_reason else PENDING
+    allowed = RECAPTIONABLE if redo else (NEEDS_METADATA,)
     with conn:
         conn.execute(
             "UPDATE files SET title = ?, keywords = ?, category = ?, people_visible = ?, "
-            "content_type = ?, status = ?, error = ?, updated_at = ? WHERE path = ? AND status = ?",
+            "content_type = ?, status = ?, error = ?, updated_at = ? "
+            f"WHERE path = ? AND status IN ({','.join('?' * len(allowed))})",
             (
                 title,
                 json.dumps(list(keywords)),
@@ -311,7 +326,7 @@ def set_metadata(
                 review_reason or None,
                 _now(),
                 str(path),
-                NEEDS_METADATA,
+                *allowed,
             ),
         )
 
