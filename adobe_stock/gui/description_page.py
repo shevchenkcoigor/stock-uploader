@@ -4,7 +4,7 @@ import json
 import sqlite3
 from typing import cast
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -19,11 +19,13 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTableWidgetSelectionRange,
     QVBoxLayout,
 )
 
 from adobe_stock import caption, services, state
 from adobe_stock.categories import CATEGORIES
+from adobe_stock.gui.bulk_bar import BulkBar
 from adobe_stock.gui.context import AppContext
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
@@ -83,6 +85,7 @@ class DescriptionPage(TaskPage):
         self._rows: list[sqlite3.Row] = []
         self._visible: list[sqlite3.Row] = []
         self._selected = ""
+        self._marked: set[str] = set()  # the files picked for a bulk edit, across pages
         self._page = 0
         self._loading = False
         self.output.setVisible(False)
@@ -148,7 +151,6 @@ class DescriptionPage(TaskPage):
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
         )
@@ -194,6 +196,14 @@ class DescriptionPage(TaskPage):
         attach_file_menu(self.tiles, lambda pos: self._path_of(self.tiles.itemAt(pos)))
         attach_file_menu(self.table, lambda pos: self._path_of(self._name_item(self.table.itemAt(pos))))
         self.table.cellDoubleClicked.connect(self._cell_double_clicked)
+
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.bulk_bar = BulkBar()
+        self.bulk_bar.applied.connect(self._bulk_apply)
+        self.bulk_bar.select_all_clicked.connect(self._select_all)
+        self.bulk_bar.clear_clicked.connect(self._clear_marked)
+        column.addWidget(self.bulk_bar)
 
         self.views = QStackedWidget()
         self.views.addWidget(self.table)
@@ -414,16 +424,25 @@ class DescriptionPage(TaskPage):
     def _table_selected(self) -> None:
         if self._loading:
             return
+        rows = self._current_rows()
+        picked = {
+            rows[i.row()]["filename"]
+            for i in self.table.selectionModel().selectedRows()
+            if i.row() < len(rows)
+        }
+        self._remark(picked)
         row = self.table.currentRow()
-        if 0 <= row < len(self._current_rows()):
-            self._choose(self._current_rows()[row]["filename"])
+        if 0 <= row < len(rows):
+            self._choose(rows[row]["filename"])
 
     def _tile_selected(self) -> None:
         if self._loading:
             return
         items = self.tiles.selectedItems()
-        if items:
-            self._choose(str(items[0].data(Qt.ItemDataRole.UserRole)))
+        self._remark({str(item.data(Qt.ItemDataRole.UserRole)) for item in items})
+        current = self.tiles.currentItem()
+        if current is not None:
+            self._choose(str(current.data(Qt.ItemDataRole.UserRole)))
 
     def _choose(self, filename: str) -> None:
         if filename == self._selected:
@@ -442,17 +461,58 @@ class DescriptionPage(TaskPage):
 
     def _select_in_views(self) -> None:
         names = [row["filename"] for row in self._current_rows()]
-        index = names.index(self._selected) if self._selected in names else -1
+        current = names.index(self._selected) if self._selected in names else -1
         was_loading, self._loading = self._loading, True
         try:
-            if index < 0:
-                self.table.clearSelection()
-                self.tiles.clearSelection()
-            else:
-                self.table.selectRow(index)
-                self.tiles.setCurrentRow(index)
+            self.table.clearSelection()
+            self.tiles.clearSelection()
+            for index, name in enumerate(names):
+                if name in self._marked or index == current:
+                    self.table.setRangeSelected(
+                        QTableWidgetSelectionRange(index, 0, index, len(COLUMNS) - 1), True
+                    )
+                    item = self.tiles.item(index)
+                    if item is not None:
+                        item.setSelected(True)
+            if current >= 0:
+                self.table.setCurrentCell(current, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+                self.tiles.setCurrentRow(current, QItemSelectionModel.SelectionFlag.NoUpdate)
         finally:
             self._loading = was_loading
+        self.bulk_bar.set_count(self._marked_count())
+
+    # ---- bulk edit ----------------------------------------------------------------------------
+
+    def _marked_count(self) -> int:
+        return sum(1 for row in self._visible if row["filename"] in self._marked)
+
+    def _remark(self, picked: set[str]) -> None:
+        """A click or key on the views replaces the marks of this page with what is selected there."""
+        self._marked = picked
+        self.bulk_bar.set_count(len(picked))
+
+    def _select_all(self) -> None:
+        self._marked = {row["filename"] for row in self._visible}
+        self._select_in_views()
+
+    def _clear_marked(self) -> None:
+        self._marked = set()
+        self._select_in_views()
+
+    def _bulk_apply(self, tag: str, category: object) -> None:
+        names = [row["filename"] for row in self._visible if row["filename"] in self._marked]
+        code = None if category is None else str(category)
+
+        def work(conn, progress, should_stop):
+            return state.bulk_edit(conn, names, tag, code)
+
+        try:
+            changed = self.ctx.job(work)(lambda *_: None, lambda: False)
+        except Exception as error:  # a locked or damaged database
+            self.write(f"ОШИБКА: не удалось изменить файлы: {error}")
+            return
+        self.status.setText(f"Изменено файлов: {changed} из {len(names)}")
+        QTimer.singleShot(0, self.ctx.data_changed.emit)
 
     def _step(self, delta: int) -> None:
         names = [row["filename"] for row in self._visible]

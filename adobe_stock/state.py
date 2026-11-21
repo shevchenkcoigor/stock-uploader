@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from adobe_stock.metadata_csv import Item, split_into_batches
+from adobe_stock.metadata_csv import MAX_KEYWORDS, Item, split_into_batches
 
 PENDING = "pending"
 INVALID = "invalid"
@@ -359,6 +359,42 @@ def update_metadata(
             ),
         ).rowcount
     return changed > 0
+
+
+def bulk_edit(
+    conn: sqlite3.Connection, filenames: list[str], tag: str = "", category: str | None = None
+) -> int:
+    """Add one keyword to, and/or set the category of, several files at once; returns how many changed.
+
+    The keyword is appended (never twice, at most MAX_KEYWORDS), the category replaces the old one.
+    Only files that may still be described are touched; a described one stays described.
+    """
+    tag = tag.strip()
+    if not filenames or (not tag and category is None):
+        return 0
+    marks = ",".join("?" * len(EDITABLE_STATUSES))
+    changed = 0
+    with conn:
+        for filename in filenames:
+            row = conn.execute(
+                "SELECT title, keywords, category FROM files "
+                f"WHERE filename = ? AND batch_id IS NULL AND status IN ({marks})",
+                (filename, *EDITABLE_STATUSES),
+            ).fetchone()
+            if row is None:
+                continue
+            keywords = list(json.loads(row["keywords"]))
+            if tag and tag not in keywords and len(keywords) < MAX_KEYWORDS:
+                keywords.append(tag)
+            update_metadata(
+                conn,
+                filename,
+                row["title"],
+                tuple(keywords),
+                row["category"] if category is None else category,
+            )
+            changed += 1
+    return changed
 
 
 def review_files(conn: sqlite3.Connection) -> list[sqlite3.Row]:

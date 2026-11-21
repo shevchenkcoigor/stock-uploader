@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSettings, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange  # noqa: E402
 
 from adobe_stock import caption, services, state  # noqa: E402
 from adobe_stock.gui.context import AppContext  # noqa: E402
@@ -765,3 +766,84 @@ def test_description_shows_category_name_and_status_on_tiles(app, window, prefs)
 
     description.tiles_button.click()
     assert description.tiles.item(0).text().endswith("Новый")
+
+
+def test_bulk_edit_adds_a_keyword_and_replaces_the_category_only_for_editable_files(tmp_path):
+    conn = state.open_db(tmp_path / "d.db")
+    conn.execute("INSERT INTO batches (id, folder, part, created_at) VALUES (1, 'f', 1, 'now')")
+    rows = (
+        ("a.jpg", "needs_metadata", None, "", "[]", ""),
+        ("b.jpg", "pending", None, "Title", '["fir", "tree"]', "3"),
+        ("c.jpg", "pending", None, "Title", '["tree"]', "3"),
+        ("sent.jpg", "submitted", 1, "Title", '["x"]', "3"),
+    )
+    for name, status, batch, title, keywords, category in rows:
+        conn.execute(
+            "INSERT INTO files (batch_id, path, filename, sha256, size, status, updated_at, title, keywords, "
+            "category) VALUES (?, ?, ?, ?, 1, ?, 'now', ?, ?, ?)",
+            (batch, f"/x/{name}", name, name, status, title, keywords, category),
+        )
+    conn.commit()
+
+    names = ["a.jpg", "b.jpg", "c.jpg", "sent.jpg"]
+    assert state.bulk_edit(conn, names, tag="tree", category="7") == 3  # the sent one is left alone
+
+    def stored(name):
+        row = conn.execute(
+            "SELECT keywords, category, status FROM files WHERE filename = ?", (name,)
+        ).fetchone()
+        return json.loads(row["keywords"]), row["category"], row["status"]
+
+    assert stored("a.jpg") == (["tree"], "7", "needs_metadata")  # no title yet, so still new
+    assert stored("b.jpg") == (["fir", "tree"], "7", "pending")  # never twice
+    assert stored("c.jpg") == (["tree"], "7", "pending")
+    assert stored("sent.jpg") == (["x"], "3", "submitted")
+
+    assert state.bulk_edit(conn, names, tag="", category=None) == 0  # nothing to apply
+    assert state.bulk_edit(conn, ["c.jpg"], tag="new") == 1  # a keyword alone keeps the category
+    assert stored("c.jpg") == (["tree", "new"], "7", "pending")
+
+
+def test_bulk_edit_stops_at_the_keyword_limit(tmp_path):
+    conn = state.open_db(tmp_path / "d.db")
+    full = json.dumps([f"k{n}" for n in range(49)])
+    conn.execute(
+        "INSERT INTO files (path, filename, sha256, size, status, updated_at, title, keywords) "
+        "VALUES ('/x/a.jpg', 'a.jpg', 'a', 1, 'pending', 'now', 'T', ?)",
+        (full,),
+    )
+    conn.commit()
+    state.bulk_edit(conn, ["a.jpg"], tag="one more")
+    assert len(json.loads(conn.execute("SELECT keywords FROM files").fetchone()[0])) == 49
+
+
+def test_description_bulk_bar_edits_all_selected_files(app, window, prefs):
+    seed_files(prefs, [f"f{n:02d}.jpg" for n in range(25)])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    assert description.bulk_bar.isHidden()
+    description.table.selectRow(0)
+    assert description.bulk_bar.isHidden()  # one file is edited in the side panel
+    description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 2, 5), True)
+    assert not description.bulk_bar.isHidden()
+    assert description.bulk_bar.count_label.text() == "Выбрано 3"
+
+    bar = description.bulk_bar
+    bar.tag_input.setText("forest")
+    bar.category_box.setCurrentIndex(bar.category_box.findData("5"))
+    bar.apply_button.click()
+    app.processEvents()
+    conn = state.open_db(prefs.db_path)
+    rows = conn.execute("SELECT keywords, category FROM files ORDER BY id").fetchall()
+    assert [(json.loads(r[0]), r[1]) for r in rows[:3]] == [(["forest"], "5")] * 3
+    assert [(json.loads(r[0]), r[1]) for r in rows[3:]] == [([], "")] * 22
+    assert bar.tag_input.text() == ""
+
+    bar.select_all_clicked.emit()  # all 25, across both pages
+    assert bar.count_label.text() == "Выбрано 25"
+    description._go_page(1)
+    assert bar.count_label.text() == "Выбрано 25"
+    assert len(description.table.selectionModel().selectedRows()) == 5
+    bar.clear_clicked.emit()
+    assert bar.isHidden()
