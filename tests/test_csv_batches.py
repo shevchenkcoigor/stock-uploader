@@ -114,3 +114,26 @@ def test_batch_status_counts_per_batch(tmp_path):
     state.mark_uploaded(conn, state.pending_files(conn)[0][0])
 
     assert state.batch_status_counts(conn) == {1: ((state.PENDING, 2), (state.UPLOADED, 1))}
+
+
+def test_title_with_the_ai_label_is_not_an_error(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    state.update_metadata(conn, "a.jpg", "Sea at dawn Generative AI", ("sea",), "")
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+    report = services.build_csv(conn, batch, settings(tmp_path))
+
+    [entry] = csv_batches.csv_entries(conn)
+
+    assert report.ok
+    assert (entry.state, entry.bad_rows) == (csv_batches.BUILT, 0)
+
+
+def test_build_csv_reports_row_problems_instead_of_claiming_success(tmp_path):
+    conn = uploaded(tmp_path, ["a.jpg"])
+    state.update_metadata(conn, "a.jpg", "Sea at dawn Midjourney", ("sea",), "")
+    batch = csv_batches.batches_without_csv(conn)[0]["batch_id"]
+
+    report = services.build_csv(conn, batch, settings(tmp_path))
+
+    assert not report.ok
+    assert any("Midjourney" in problem for problem in report.problems)
