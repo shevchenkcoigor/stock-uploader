@@ -13,24 +13,34 @@ function Placeholder() {
   )
 }
 
+interface Props {
+  path: string
+  side?: number
+  /** Tailwind background class of a dot in the corner (e.g. `bg-warning`). */
+  badge?: string
+}
+
 /** A framed square preview; a placeholder while loading or when the picture cannot be read.
  *  Give it a `key` of the path: a different picture needs a fresh component. */
-export function Thumb({ path, warning }: { path: string; warning?: boolean }) {
+export function Thumb({ path, side = THUMB_SIDE, badge }: Props) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
     let current = true
     filesApi
-      .thumbnail(path, THUMB_SIDE)
+      .thumbnail(path, side)
       .then((found) => current && setUrl(found))
       .catch(() => undefined)
     return () => {
       current = false
     }
-  }, [path])
+  }, [path, side])
   return (
-    <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded border border-line bg-sunken">
+    <span
+      style={{ width: side, height: side }}
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded border border-line bg-sunken"
+    >
       {url ? <img src={url} alt="" className="size-full object-contain" /> : <Placeholder />}
-      {warning && <span aria-hidden className="absolute right-[3px] top-[3px] size-2.5 rounded-full border-2 border-surface bg-warning" />}
+      {badge && <span aria-hidden className={`absolute right-[3px] top-[3px] size-2.5 rounded-full border-2 border-surface ${badge}`} />}
     </span>
   )
 }

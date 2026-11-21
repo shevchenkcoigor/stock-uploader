@@ -63,6 +63,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS files_live_filename
     ON files(filename) WHERE status != 'invalid';
 ";
 
+/// Keywords as Python's `json.dumps(list)` writes them (`["a", "b"]`, non-ASCII as `\uXXXX`), so rows
+/// written here are byte-identical to the ones the Python app writes.
+pub fn keywords_json(keywords: &[String]) -> String {
+    let encoded: Vec<String> = keywords
+        .iter()
+        .map(|word| {
+            let quoted = serde_json::to_string(word).unwrap_or_else(|_| "\"\"".to_string());
+            let mut out = String::with_capacity(quoted.len());
+            for ch in quoted.chars() {
+                if ch.is_ascii() {
+                    out.push(ch);
+                } else {
+                    let mut units = [0u16; 2];
+                    for unit in ch.encode_utf16(&mut units) {
+                        out.push_str(&format!("\\u{unit:04x}"));
+                    }
+                }
+            }
+            out
+        })
+        .collect();
+    format!("[{}]", encoded.join(", "))
+}
+
+pub fn parse_keywords(raw: &str) -> Vec<String> {
+    serde_json::from_str(raw).unwrap_or_default()
+}
+
 /// Same text as Python's `datetime.now(UTC).isoformat(timespec="seconds")`.
 pub fn now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00").to_string()
@@ -225,11 +253,7 @@ struct Registration<'a> {
 }
 
 fn upsert(conn: &Connection, entry: &Registration) -> AppResult<()> {
-    let keywords = entry
-        .item
-        .map(|item| serde_json::to_string(&item.keywords))
-        .transpose()?
-        .unwrap_or_else(|| "[]".to_string());
+    let keywords = entry.item.map(|item| keywords_json(&item.keywords)).unwrap_or_else(|| "[]".to_string());
     conn.execute(
         "INSERT INTO files (path, filename, sha256, size, mtime_ns, root, title, keywords, category,
                             status, error, updated_at)
@@ -346,7 +370,7 @@ struct PendingRow {
 }
 
 fn item_of(filename: String, title: String, keywords: &str, category: String) -> Item {
-    Item { filename, title, keywords: serde_json::from_str(keywords).unwrap_or_default(), category }
+    Item { filename, title, keywords: parse_keywords(keywords), category }
 }
 
 /// Puts pending files that have no batch yet into new batches, grouped by scan root.
@@ -456,4 +480,139 @@ pub fn invalid_files(conn: &Connection, root: &Path) -> AppResult<Vec<(String, S
         .filter(|(path, _)| Path::new(path).starts_with(root))
         .map(|(path, error)| (path, error.unwrap_or_default()))
         .collect())
+}
+
+// ---------------------------------------------------------------------------- description page
+
+/// What the Description page lists and lets a person edit: new, described, flagged for review, uploaded.
+/// Invalid files stay on the scan page; submitted ones are final.
+pub const EDITABLE_STATUSES: [&str; 4] = [NEEDS_METADATA, PENDING, REVIEW, UPLOADED];
+pub const MANUAL_REVIEW_REASON: &str = "Отмечено на проверку вручную";
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRow {
+    pub filename: String,
+    pub path: String,
+    pub size: i64,
+    pub title: String,
+    pub keywords: Vec<String>,
+    pub category: String,
+    pub status: String,
+    pub error: Option<String>,
+    pub updated_at: String,
+}
+
+pub fn files_to_describe(conn: &Connection) -> AppResult<Vec<FileRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT filename, path, size, title, keywords, category, status, error, updated_at
+         FROM files WHERE status IN (?, ?, ?, ?) ORDER BY id",
+    )?;
+    let rows = stmt
+        .query_map(params![EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]], |row| {
+            Ok(FileRow {
+                filename: row.get(0)?,
+                path: row.get(1)?,
+                size: row.get(2)?,
+                title: row.get(3)?,
+                keywords: parse_keywords(&row.get::<_, String>(4)?),
+                category: row.get(5)?,
+                status: row.get(6)?,
+                error: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// Saves a person's edit. A file waiting for metadata becomes pending once it has a title and keywords.
+/// Only the editable statuses change: not invalid ones and not those already submitted.
+pub fn update_metadata(conn: &Connection, filename: &str, title: &str, keywords: &[String], category: &str) -> AppResult<bool> {
+    let keywords = keywords_json(keywords);
+    let changed = conn.execute(
+        "UPDATE files SET title = ?, keywords = ?, category = ?, updated_at = ?,
+         status = CASE WHEN status = ? AND ? != '' AND ? != '[]' THEN ? ELSE status END
+         WHERE filename = ? AND status IN (?, ?, ?, ?)",
+        params![
+            title, keywords, category, now(), NEEDS_METADATA, title, keywords, PENDING, filename,
+            EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Adds one keyword to, and/or sets the category of, several files; returns how many were touched.
+/// The keyword is appended (never twice, at most MAX_KEYWORDS), the category replaces the old one.
+pub fn bulk_edit(conn: &Connection, filenames: &[String], tag: &str, category: Option<&str>) -> AppResult<usize> {
+    let tag = tag.trim();
+    if filenames.is_empty() || (tag.is_empty() && category.is_none()) {
+        return Ok(0);
+    }
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = 0;
+    for filename in filenames {
+        let row: Option<(String, String, String)> = tx
+            .query_row(
+                "SELECT title, keywords, category FROM files WHERE filename = ? AND status IN (?, ?, ?, ?)",
+                params![filename, EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((title, raw_keywords, old_category)) = row else { continue };
+        let mut keywords = parse_keywords(&raw_keywords);
+        if !tag.is_empty() && !keywords.iter().any(|word| word == tag) && keywords.len() < super::metadata_csv::MAX_KEYWORDS {
+            keywords.push(tag.to_string());
+        }
+        update_metadata(&tx, filename, &title, &keywords, category.unwrap_or(&old_category))?;
+        changed += 1;
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
+/// Moves files between the statuses of the Description page by hand; returns how many were moved.
+/// Only files of those statuses move, and a file already in `status` is not counted. Everything but "new"
+/// needs a title and keywords: a file without them stays as it is.
+pub fn set_status(conn: &Connection, filenames: &[String], status: &str) -> AppResult<usize> {
+    if !EDITABLE_STATUSES.contains(&status) {
+        return Err(crate::error::AppError::Invalid(format!("not a status of the description page: {status}")));
+    }
+    if filenames.is_empty() {
+        return Ok(0);
+    }
+    let needs_text = if status == NEEDS_METADATA { "" } else { " AND title != '' AND keywords != '[]'" };
+    let reason = (status == REVIEW).then_some(MANUAL_REVIEW_REASON);
+    let names = serde_json::to_string(filenames)?;
+    let sql = format!(
+        "UPDATE files SET status = ?, error = ?, updated_at = ? WHERE status != ? \
+         AND status IN (?, ?, ?, ?) AND filename IN (SELECT value FROM json_each(?)){needs_text}"
+    );
+    Ok(conn.execute(
+        &sql,
+        params![status, reason, now(), status, EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3], names],
+    )?)
+}
+
+/// Releases flagged files into the pending queue; `None` approves all of them.
+pub fn approve_reviewed(conn: &Connection, filenames: Option<&[String]>) -> AppResult<usize> {
+    match filenames {
+        None => Ok(conn.execute(
+            "UPDATE files SET status = ?, error = NULL, updated_at = ? WHERE status = ?",
+            params![PENDING, now(), REVIEW],
+        )?),
+        Some([]) => Ok(0),
+        Some(names) => Ok(conn.execute(
+            "UPDATE files SET status = ?, error = NULL, updated_at = ? WHERE status = ?
+             AND filename IN (SELECT value FROM json_each(?))",
+            params![PENDING, now(), REVIEW, serde_json::to_string(names)?],
+        )?),
+    }
+}
+
+pub fn assign_batches(conn: &Connection, batch_size: Option<usize>) -> AppResult<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let created = batch_unassigned(&tx, batch_size)?;
+    tx.commit()?;
+    Ok(created)
 }

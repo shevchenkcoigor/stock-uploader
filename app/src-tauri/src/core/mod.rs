@@ -2,6 +2,7 @@
 //! on-disk formats stay identical, so the PySide app and this app can work on the same files.
 
 pub mod backup;
+pub mod describe;
 pub mod metadata_csv;
 pub mod scan;
 pub mod state;

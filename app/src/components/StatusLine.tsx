@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, prefsApi, type StatusCount } from '../lib/api'
-import { SCAN_DONE_EVENT } from '../lib/events'
+import { DATA_CHANGED_EVENT } from '../lib/events'
 import { lastScanText, parseLastScan } from '../lib/format'
 import { STATUS_ORDER, STATUS_VIEWS } from '../lib/status'
 import { SETTINGS_SAVED_EVENT } from '../lib/useSettings'
@@ -30,10 +30,10 @@ export function StatusLine() {
     load()
     // The database may have been switched on the settings page, and a scan changes the counts.
     window.addEventListener(SETTINGS_SAVED_EVENT, load)
-    window.addEventListener(SCAN_DONE_EVENT, load)
+    window.addEventListener(DATA_CHANGED_EVENT, load)
     return () => {
       window.removeEventListener(SETTINGS_SAVED_EVENT, load)
-      window.removeEventListener(SCAN_DONE_EVENT, load)
+      window.removeEventListener(DATA_CHANGED_EVENT, load)
     }
   }, [])
   return (

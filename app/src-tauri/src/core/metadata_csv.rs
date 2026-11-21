@@ -11,7 +11,7 @@ use super::py_repr;
 pub const HEADERS: [&str; 5] = ["Filename", "Title", "Keywords", "Category", "Releases"];
 pub const MAX_ROWS: usize = 20_000;
 pub const MAX_CSV_BYTES: usize = 20 * 1024 * 1024;
-const MAX_KEYWORDS: usize = 49;
+pub const MAX_KEYWORDS: usize = 49;
 const MAX_TITLE_CHARS: usize = 200;
 const CATEGORY_COUNT: u32 = 21;
 pub const DEFAULT_AI_TITLE_LABEL: &str = "Generative AI";

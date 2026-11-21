@@ -8,7 +8,7 @@ import { Thumb } from '../components/Thumb'
 import { filesApi, prefsApi, scanApi, type ProblemFile, type ScanProgress } from '../lib/api'
 import { formatCount, humanizeReason, parseLastScan, shortPath } from '../lib/format'
 import { viewOf } from '../lib/status'
-import { SCAN_DONE_EVENT } from '../lib/events'
+import { DATA_CHANGED_EVENT } from '../lib/events'
 import { SETTINGS_SAVED_EVENT } from '../lib/useSettings'
 import type { PageProps } from './pages'
 
@@ -124,7 +124,7 @@ export function ScanPage({ active, navigate }: PageProps) {
       setSummary(`${outcome.stopped ? 'Остановлено' : 'Готово'} · ${formatCount(outcome.found)} файлов`)
       const changed = outcome.changedAfterUpload.map((name) => `ВНИМАНИЕ ${name} изменён после загрузки, повторно не грузится`)
       if (changed.length) setMessage(changed.join('\n'))
-      window.dispatchEvent(new Event(SCAN_DONE_EVENT))
+      window.dispatchEvent(new Event(DATA_CHANGED_EVENT))
       refreshProblems()
     } catch (reason) {
       setMessage(String(reason))
@@ -240,7 +240,7 @@ export function ScanPage({ active, navigate }: PageProps) {
               <tr key={row.path} className="group border-t border-line" onDoubleClick={() => void filesApi.open(row.path).catch((reason) => setMessage(String(reason)))}>
                 <td className="py-1.5 pr-3">
                   <div className="flex items-center gap-3">
-                    <Thumb key={row.path} path={row.path} warning={row.status === 'review'} />
+                    <Thumb key={row.path} path={row.path} badge={row.status === 'review' ? 'bg-warning' : undefined} />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs" title={row.path}>
                       {shortPath(row.path, folder)}
                     </span>

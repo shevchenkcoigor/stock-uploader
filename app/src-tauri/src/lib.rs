@@ -1,6 +1,7 @@
 mod checks;
 pub mod core;
 mod db;
+mod describe_cmd;
 mod error;
 mod events;
 mod files;
@@ -28,6 +29,12 @@ pub fn run() {
             scan_cmd::scan_start,
             scan_cmd::scan_cancel,
             scan_cmd::problem_files,
+            describe_cmd::describe_files,
+            describe_cmd::save_metadata,
+            describe_cmd::bulk_apply,
+            describe_cmd::set_files_status,
+            describe_cmd::approve_files,
+            describe_cmd::image_sizes,
             files::thumbnail,
             files::open_path,
             files::reveal_path,

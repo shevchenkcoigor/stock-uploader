@@ -1,17 +1,10 @@
+import { pagesIn, visiblePages } from '../lib/paging'
+
 interface Props {
   total: number
   pageSize: number
   page: number
   onPage: (page: number) => void
-}
-
-const pagesIn = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize))
-
-/** Page numbers to show: the first, the last and the neighbours of the current one, gaps as null. */
-function visiblePages(count: number, current: number): Array<number | null> {
-  const wanted = new Set([0, count - 1, current - 1, current, current + 1])
-  const pages = [...wanted].filter((page) => page >= 0 && page < count).sort((a, b) => a - b)
-  return pages.flatMap((page, index) => (index > 0 && page - pages[index - 1] > 1 ? [null, page] : [page]))
 }
 
 export function Pager({ total, pageSize, page, onPage }: Props) {

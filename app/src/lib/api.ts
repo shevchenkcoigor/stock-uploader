@@ -101,3 +101,38 @@ export const filesApi = {
   open: (path: string) => invoke<void>('open_path', { path }),
   reveal: (path: string) => invoke<void>('reveal_path', { path }),
 }
+
+export interface FileRow {
+  filename: string
+  path: string
+  size: number
+  title: string
+  keywords: string[]
+  category: string
+  status: string
+  error: string | null
+  updatedAt: string
+}
+
+export interface ApproveReport {
+  count: number
+  newBatches: number
+}
+
+export interface BulkResult {
+  edited: number | null
+  moved: number | null
+  newBatches: number
+}
+
+export const describeApi = {
+  files: () => invoke<FileRow[]>('describe_files'),
+  /** False when the file is final (submitted) or not editable. */
+  save: (filename: string, title: string, keywords: string[], category: string) =>
+    invoke<boolean>('save_metadata', { filename, title, keywords, category }),
+  bulk: (names: string[], tag: string, category: string | null, status: string | null) =>
+    invoke<BulkResult>('bulk_apply', { names, tag, category, status }),
+  setStatus: (names: string[], status: string) => invoke<ApproveReport>('set_files_status', { names, status }),
+  approve: (names: string[] | null) => invoke<ApproveReport>('approve_files', { names }),
+  imageSizes: (paths: string[]) => invoke<Array<[number, number]>>('image_sizes', { paths }),
+}
