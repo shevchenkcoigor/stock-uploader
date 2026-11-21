@@ -598,6 +598,50 @@ def log_event(
         )
 
 
+def search_events(
+    conn: sqlite3.Connection,
+    limit: int,
+    *,
+    text: str = "",
+    level: str | None = None,
+    command: str | None = None,
+    after_id: int = 0,
+) -> tuple[list[sqlite3.Row], int]:
+    """The newest `limit` events matching the filters (newest first) and how many match in all.
+
+    `text` is looked for in the message and the file name, ignoring case; `after_id` hides older events.
+    """
+    conditions = ["id > ?"]
+    params: list[str | int] = [after_id]
+    if text:
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append("(message LIKE ? ESCAPE '\\' OR filename LIKE ? ESCAPE '\\')")
+        params += [f"%{escaped}%"] * 2
+    if level:
+        conditions.append("level = ?")
+        params.append(level)
+    if command:
+        conditions.append("command = ?")
+        params.append(command)
+    where = " AND ".join(conditions)
+    rows = conn.execute(
+        f"SELECT id, at, command, level, filename, message FROM events WHERE {where}"
+        " ORDER BY id DESC LIMIT ?",
+        [*params, limit],
+    ).fetchall()
+    total = conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
+    return rows, total
+
+
+def event_commands(conn: sqlite3.Connection) -> list[str]:
+    """The sections (commands) that have written to the history, alphabetically."""
+    return [row[0] for row in conn.execute("SELECT DISTINCT command FROM events ORDER BY command")]
+
+
+def last_event_id(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+
+
 def recent_events(
     conn: sqlite3.Connection, limit: int, command: str | None = None, level: str | None = None
 ) -> list[sqlite3.Row]:

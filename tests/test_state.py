@@ -272,6 +272,48 @@ def test_event_log_survives_rescans_and_old_databases_get_the_table(tmp_path):
     assert state.recent_events(state.open_db(db), 10) == []  # recreated on open
 
 
+def seeded_events(tmp_path):
+    conn = state.open_db(tmp_path / "s.db")
+    state.log_event(conn, "scan", "found 3 files")
+    state.log_event(conn, "scan", "too small", "warning", "icon_01.png")
+    state.log_event(conn, "upload", "connection lost", "error", "city.jpg")
+    state.log_event(conn, "csv", "100% done_ok")
+    return conn
+
+
+def test_search_events_filters_and_counts_all_matches(tmp_path):
+    conn = seeded_events(tmp_path)
+
+    rows, total = state.search_events(conn, 2)
+    assert [r["message"] for r in rows] == ["100% done_ok", "connection lost"]  # newest first
+    assert total == 4
+    assert state.search_events(conn, 10, level="error")[1] == 1
+    assert state.search_events(conn, 10, command="scan")[1] == 2
+
+
+def test_search_events_looks_in_message_and_file_name_with_literal_wildcards(tmp_path):
+    conn = seeded_events(tmp_path)
+
+    assert [r["command"] for r in state.search_events(conn, 10, text="CITY")[0]] == ["upload"]
+    assert [r["command"] for r in state.search_events(conn, 10, text="100%")[0]] == ["csv"]
+    # only "icon_01.png" and "done_ok" contain an underscore: it is not "any character"
+    assert state.search_events(conn, 10, text="_")[1] == 2
+    assert state.search_events(conn, 10, text="nothing like this")[0] == []
+
+
+def test_search_events_after_id_hides_older_events(tmp_path):
+    conn = seeded_events(tmp_path)
+    cutoff = state.last_event_id(conn)
+    state.log_event(conn, "scan", "later")
+
+    rows, total = state.search_events(conn, 10, after_id=cutoff)
+    assert [r["message"] for r in rows] == ["later"] and total == 1
+
+
+def test_event_commands_are_distinct_and_sorted(tmp_path):
+    assert state.event_commands(seeded_events(tmp_path)) == ["csv", "scan", "upload"]
+
+
 def test_upload_logs_each_file_and_the_summary(tmp_path, monkeypatch):
     db = tmp_path / "s.db"
     main(["--db", str(db), "scan", str(make_folder(tmp_path, "f1", ["a.jpg", "b.jpg"]))])

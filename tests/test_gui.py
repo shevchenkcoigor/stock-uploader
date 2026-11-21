@@ -215,6 +215,81 @@ def test_log_page_shows_events(app, window, prefs, tmp_path):
     assert log_page.table.item(0, 2).text() == "scan"
 
 
+def log_events(window, prefs, *events):
+    conn = state.open_db(prefs.db_path)
+    for event in events:
+        state.log_event(conn, *event)
+    page(window, "Журнал").refresh()
+    return page(window, "Журнал")
+
+
+def shown_messages(log_page):
+    return [log_page.table.item(row, 3).text() for row in range(log_page.table.rowCount())]
+
+
+def test_log_page_search_and_filters(window, prefs):
+    log_page = log_events(
+        window,
+        prefs,
+        ("scan", "found 3 files"),
+        ("scan", "too small", "warning", "icon.png"),
+        ("upload", "connection lost", "error", "city.jpg"),
+    )
+    assert shown_messages(log_page) == ["found 3 files", "icon.png: too small", "city.jpg: connection lost"]
+
+    log_page.search.setText("CITY")
+    assert shown_messages(log_page) == ["city.jpg: connection lost"]
+    log_page.search.setText("")
+    log_page.level.setCurrentIndex(log_page.level.findData("warning"))
+    assert shown_messages(log_page) == ["icon.png: too small"]
+    log_page.level.setCurrentIndex(0)
+    log_page.section.setCurrentIndex(log_page.section.findData("upload"))
+    assert shown_messages(log_page) == ["city.jpg: connection lost"]
+    assert log_page.count.text().startswith("Показано 1 из 1")
+
+
+def test_log_page_sorts_by_level_when_the_header_is_clicked(window, prefs):
+    log_page = log_events(window, prefs, ("scan", "a"), ("scan", "b", "error"), ("scan", "c", "warning"))
+
+    log_page.sorter.click(1)  # Уровень, ascending: errors first
+    assert shown_messages(log_page) == ["b", "c", "a"]
+    log_page.sorter.click(0)  # Время, ascending: oldest first
+    assert shown_messages(log_page) == ["a", "b", "c"]
+    log_page.sorter.click(0)  # and again: newest first
+    assert shown_messages(log_page) == ["c", "b", "a"]
+
+
+def test_log_page_clear_hides_old_events_but_keeps_them_in_the_database(window, prefs):
+    log_page = log_events(window, prefs, ("scan", "old"))
+
+    log_page.clear_shown()
+    assert shown_messages(log_page) == []
+    state.log_event(state.open_db(prefs.db_path), "scan", "new")
+    log_page.refresh()
+    assert shown_messages(log_page) == ["new"]
+    assert len(state.recent_events(state.open_db(prefs.db_path), 10)) == 2
+
+
+def test_log_page_copies_the_shown_lines(app, window, prefs):
+    log_page = log_events(window, prefs, ("scan", "found", "info"), ("upload", "lost", "error", "a.jpg"))
+
+    log_page.copy_shown()
+    lines = QApplication.clipboard().text().splitlines()
+    assert [line.split("\t")[1:] for line in lines] == [
+        ["info", "scan", "found"],
+        ["error", "upload", "a.jpg: lost"],
+    ]
+
+
+def test_log_page_follow_polls_only_while_checked(window, prefs):
+    log_page = log_events(window, prefs, ("scan", "one"))
+
+    log_page.follow_button.setChecked(True)
+    assert log_page._follow.isActive()
+    log_page.follow_button.setChecked(False)
+    assert not log_page._follow.isActive()
+
+
 def test_task_failure_is_shown_in_the_page(app, window):
     scan_page = page(window, "Скан")
 
