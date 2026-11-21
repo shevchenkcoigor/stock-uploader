@@ -12,14 +12,14 @@ pub const HEADERS: [&str; 5] = ["Filename", "Title", "Keywords", "Category", "Re
 pub const MAX_ROWS: usize = 20_000;
 pub const MAX_CSV_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_KEYWORDS: usize = 49;
-const MAX_TITLE_CHARS: usize = 200;
+pub const MAX_TITLE_CHARS: usize = 200;
 const CATEGORY_COUNT: u32 = 21;
 pub const DEFAULT_AI_TITLE_LABEL: &str = "Generative AI";
 const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
 
 // Adobe labels generative-AI content itself (portal checkbox), so titles and keywords must not
 // announce it or name AI tools.
-static AI_TERMS: LazyLock<Regex> = LazyLock::new(|| {
+pub static AI_TERMS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\b(?:generative(?:\s+ai)?|ai[\s-]+generated|artificial\s+intelligence|generated|ai|midjourney|dall[\s-]?e|stable\s+diffusion|chatgpt|firefly)\b",
     )
@@ -82,6 +82,26 @@ pub fn keyword_problem(keyword: &str) -> Option<&'static str> {
         return Some("looks like file information");
     }
     None
+}
+
+/// Ends the title with `label` (e.g. "Generative AI"), keeping it within the title limit.
+/// An empty label leaves the title alone; a title that already ends with the label is kept.
+pub fn with_ai_label(title: &str, label: &str) -> String {
+    let label = label.trim();
+    if label.is_empty() || title.to_lowercase().ends_with(&label.to_lowercase()) {
+        return title.to_string();
+    }
+    let room = MAX_TITLE_CHARS.saturating_sub(label.chars().count() + 1);
+    let body = if title.chars().count() <= room {
+        title.to_string()
+    } else {
+        let cut: String = title.chars().take(room).collect();
+        match cut.rsplit_once(' ') {
+            Some((head, _)) if !head.is_empty() => head.to_string(),
+            _ => cut,
+        }
+    };
+    format!("{body} {label}")
 }
 
 /// The title minus the trailing AI label the tool adds itself, if it has one.

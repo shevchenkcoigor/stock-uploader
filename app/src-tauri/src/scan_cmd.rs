@@ -30,7 +30,7 @@ struct Flags {
 pub struct ScanControl(Arc<Flags>);
 
 /// Marks a scan as running; the mark is removed when the scan ends, however it ends.
-struct RunGuard(Arc<Flags>);
+pub(crate) struct RunGuard(Arc<Flags>);
 
 impl Drop for RunGuard {
     fn drop(&mut self) {
@@ -39,9 +39,9 @@ impl Drop for RunGuard {
 }
 
 impl ScanControl {
-    fn begin(&self) -> AppResult<RunGuard> {
+    pub(crate) fn begin(&self, already_running: &str) -> AppResult<RunGuard> {
         if self.0.running.swap(true, Ordering::SeqCst) {
-            return Err(AppError::Invalid("Сканирование уже идёт".into()));
+            return Err(AppError::Invalid(already_running.into()));
         }
         self.0.stop.store(false, Ordering::SeqCst);
         Ok(RunGuard(self.0.clone()))
@@ -141,7 +141,7 @@ pub async fn scan_start(
         return Err(AppError::Invalid(format!("Папка не найдена: {}", root.display())));
     }
     let control = control.inner().clone();
-    let guard = control.begin()?;
+    let guard = control.begin("Сканирование уже идёт")?;
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         run_scan(&app, &control, root, recursive)
@@ -151,9 +151,19 @@ pub async fn scan_start(
     outcome
 }
 
+impl ScanControl {
+    pub(crate) fn request_stop(&self) {
+        self.0.stop.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn stop_requested(&self) -> bool {
+        self.0.stop.load(Ordering::SeqCst)
+    }
+}
+
 #[tauri::command]
 pub fn scan_cancel(control: State<'_, ScanControl>) {
-    control.0.stop.store(true, Ordering::SeqCst);
+    control.request_stop();
 }
 
 #[derive(Serialize)]

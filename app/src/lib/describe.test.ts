@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'vitest'
 import type { FileRow } from './api'
 import { categoryName } from './categories'
-import { filterRows, formatSize, movedText, parseKeywords, resolutionText, sortRows } from './describe'
+import {
+  captionSummary,
+  filterRows,
+  formatSize,
+  modelTitle,
+  movedText,
+  parseKeywords,
+  resolutionText,
+  sortRows,
+} from './describe'
 import { pagesIn, visiblePages } from './paging'
 
 const file = (name: string, patch: Partial<FileRow> = {}): FileRow => ({
@@ -99,5 +108,19 @@ describe('paging', () => {
     expect(visiblePages(5, 0)).toEqual([0, 1, 2, 3, 4])
     expect(visiblePages(20, 10)).toEqual([0, null, 9, 10, 11, null, 19])
     expect(visiblePages(20, 0)).toEqual([0, 1, null, 19])
+  })
+})
+
+describe('caption helpers', () => {
+  test('shortens model ids into names', () => {
+    expect(modelTitle('claude-sonnet-5-5')).toBe('Sonnet 5.5')
+    expect(modelTitle('claude-fable-5-2')).toBe('Fable 5.2')
+  })
+
+  test('summarises a run', () => {
+    const base = { total: 10, captioned: 8, flagged: ['a: x', 'b: y'], newBatches: 1, stopped: false }
+    expect(captionSummary(base)).toBe('Подписано: 8 из 10 · на проверке: 2 · новых батчей: 1')
+    expect(captionSummary({ ...base, stopped: true })).toMatch(/отменено$/)
+    expect(captionSummary({ ...base, total: 0 })).toMatch(/^Нечего подписывать/)
   })
 })

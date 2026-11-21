@@ -70,3 +70,28 @@ export function movedText(moved: number, names: string[], status: string, rows: 
   const withoutText = rows.filter((row) => wanted.has(row.filename) && !(row.title && row.keywords.length)).length
   return withoutText ? `${text} (без заголовка или ключевых слов: ${withoutText})` : text
 }
+
+/** "Sonnet 5.5" from "claude-sonnet-5-5". */
+export function modelTitle(id: string): string {
+  const parts = id.replace(/^claude-/, '').split('-')
+  const isNumber = (part: string) => /^\d+$/.test(part)
+  const words = parts.filter((part) => !isNumber(part)).map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+  return [...words, parts.filter(isNumber).join('.')].join(' ').trim()
+}
+
+/** The result text shown under the table after a caption run. */
+export function captionSummary(report: {
+  total: number
+  captioned: number
+  flagged: string[]
+  newBatches: number
+  stopped: boolean
+}): string {
+  if (report.total === 0) return 'Нечего подписывать: среди выбранных нет файлов, которые можно подписать'
+  const parts = [
+    `Подписано: ${report.captioned} из ${report.total}`,
+    `на проверке: ${report.flagged.length}`,
+    `новых батчей: ${report.newBatches}`,
+  ]
+  return parts.join(' · ') + (report.stopped ? ' · отменено' : '')
+}

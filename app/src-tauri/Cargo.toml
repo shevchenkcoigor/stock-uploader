@@ -35,6 +35,5 @@ base64 = "0.23.1"
 jpeg-decoder = "0.3.2"
 chrono = { version = "0.4.45", features = ["clock"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
-
-[dev-dependencies]
 tempfile = "3.27.0"
+

@@ -84,6 +84,33 @@ export interface ScanProgress {
   message: string
 }
 
+export interface ModelChoice {
+  id: string
+  note: string
+}
+
+export interface ModelList {
+  models: ModelChoice[]
+  selected: string
+}
+
+export interface CaptionReport {
+  total: number
+  captioned: number
+  flagged: string[]
+  errors: string[]
+  newBatches: number
+  stopped: boolean
+}
+
+export const captionApi = {
+  models: () => invoke<ModelList>('caption_models'),
+  /** Without names: every new file. With `redo`, files that already have a description are replaced. */
+  start: (names: string[] | null, redo: boolean, model: string) =>
+    invoke<CaptionReport>('caption_start', { names, redo, model }),
+  cancel: () => invoke<void>('caption_cancel'),
+}
+
 export const scanApi = {
   /** Resolves to null when the folder has no JPEG files. */
   start: (folder: string, recursive: boolean) => invoke<ScanOutcome | null>('scan_start', { folder, recursive }),

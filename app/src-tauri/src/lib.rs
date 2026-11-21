@@ -1,6 +1,7 @@
 mod checks;
 pub mod core;
 mod db;
+mod caption_cmd;
 mod describe_cmd;
 mod error;
 mod events;
@@ -16,6 +17,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(scan_cmd::ScanControl::default())
+        .manage(caption_cmd::CaptionControl::default())
         .invoke_handler(tauri::generate_handler![
             summary::status_summary,
             events::search_events,
@@ -29,6 +31,9 @@ pub fn run() {
             scan_cmd::scan_start,
             scan_cmd::scan_cancel,
             scan_cmd::problem_files,
+            caption_cmd::caption_models,
+            caption_cmd::caption_start,
+            caption_cmd::caption_cancel,
             describe_cmd::describe_files,
             describe_cmd::save_metadata,
             describe_cmd::bulk_apply,

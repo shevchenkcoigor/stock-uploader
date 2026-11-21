@@ -191,11 +191,13 @@ export function useDescribe(active: boolean) {
     select,
     step,
     marked,
+    markedNames,
     markedCount: markedNames.length,
     toggleMark,
     toggleAll,
     dims,
     notice,
+    say,
     reviewCount: rows.filter((row) => row.status === 'review').length,
     actions: { save, moveFiles, approve, bulk },
   }

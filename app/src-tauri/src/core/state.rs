@@ -616,3 +616,72 @@ pub fn assign_batches(conn: &Connection, batch_size: Option<usize>) -> AppResult
     tx.commit()?;
     Ok(created)
 }
+
+/// Statuses whose files may be captioned again (their text is replaced).
+pub const RECAPTIONABLE: [&str; 3] = [NEEDS_METADATA, PENDING, REVIEW];
+
+/// Paths of new files waiting for a title and keywords; `names` narrows it to those files.
+/// With `redo` the picked files that already have a description count too.
+pub fn files_needing_metadata(conn: &Connection, limit: usize, names: Option<&[String]>, redo: bool) -> AppResult<Vec<PathBuf>> {
+    let statuses: &[&str] = if redo && names.is_some() { &RECAPTIONABLE } else { &[NEEDS_METADATA] };
+    let marks = vec!["?"; statuses.len()].join(",");
+    let mut values: Vec<rusqlite::types::Value> = statuses.iter().map(|status| (*status).to_string().into()).collect();
+    let mut sql = format!("SELECT path FROM files WHERE status IN ({marks})");
+    if let Some(list) = names {
+        sql.push_str(" AND filename IN (SELECT value FROM json_each(?))");
+        values.push(serde_json::to_string(list)?.into());
+    }
+    sql.push_str(" ORDER BY id LIMIT ?");
+    values.push(i64::try_from(limit).unwrap_or(i64::MAX).into());
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?.into_iter().map(PathBuf::from).collect())
+}
+
+pub struct Generated<'a> {
+    pub title: &'a str,
+    pub keywords: &'a [String],
+    pub category: &'a str,
+    pub people_visible: bool,
+    pub content_type: &'a str,
+    pub review_reason: &'a str,
+}
+
+/// Attaches generated metadata. The file becomes pending (ready to be batched), unless a review reason
+/// is set: then it goes to `review` and stays out of batches until a person approves it. Only a new file
+/// is filled in, so what a person edited meanwhile is never overwritten; with `redo` a described or
+/// flagged file is replaced too.
+pub fn set_metadata(conn: &Connection, path: &Path, data: &Generated, redo: bool) -> AppResult<()> {
+    let status = if data.review_reason.is_empty() { PENDING } else { REVIEW };
+    let allowed: &[&str] = if redo { &RECAPTIONABLE } else { &[NEEDS_METADATA] };
+    let marks = vec!["?"; allowed.len()].join(",");
+    let reason = (!data.review_reason.is_empty()).then_some(data.review_reason);
+    let mut values: Vec<rusqlite::types::Value> = vec![
+        data.title.to_string().into(),
+        keywords_json(data.keywords).into(),
+        data.category.to_string().into(),
+        i64::from(data.people_visible).into(),
+        data.content_type.to_string().into(),
+        status.to_string().into(),
+        reason.map(str::to_string).into(),
+        now().into(),
+        path.to_string_lossy().into_owned().into(),
+    ];
+    values.extend(allowed.iter().map(|value| (*value).to_string().into()));
+    conn.execute(
+        &format!(
+            "UPDATE files SET title = ?, keywords = ?, category = ?, people_visible = ?, content_type = ?, \
+             status = ?, error = ?, updated_at = ? WHERE path = ? AND status IN ({marks})"
+        ),
+        rusqlite::params_from_iter(values),
+    )?;
+    Ok(())
+}
+
+pub fn record_error(conn: &Connection, path: &Path, error: &str) -> AppResult<()> {
+    conn.execute(
+        "UPDATE files SET error = ?, updated_at = ? WHERE path = ?",
+        params![error, now(), path.to_string_lossy()],
+    )?;
+    Ok(())
+}
