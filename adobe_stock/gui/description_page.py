@@ -47,6 +47,7 @@ THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile
 DEFAULT_THUMB_SIZE = "M"
 THUMB_SIZE_KEY = "thumb_size"
 ROW_PADDING = 8
+AUTOSAVE_DELAY_MS = 700  # a pause in typing the title that saves it
 NAME_COLUMN_BASE = 150  # room for the checkbox and a file name; the picture comes on top of it
 PREVIEW_SIDE = 240
 PANEL_WIDTH = 320
@@ -117,6 +118,11 @@ class DescriptionPage(TaskPage):
         self._rows: list[sqlite3.Row] = []
         self._visible: list[sqlite3.Row] = []
         self._selected = ""
+        self._shown_file = ""  # the file whose values the card shows
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(AUTOSAVE_DELAY_MS)
+        self._autosave_timer.timeout.connect(self._autosave)
         self._marked: set[str] = set()  # the files picked for a bulk edit, across pages
         self._page = 0
         self._loading = False
@@ -330,31 +336,20 @@ class DescriptionPage(TaskPage):
 
         column.addWidget(self._field_label("Заголовок"))
         self.title_edit = QLineEdit()
-        self.title_edit.textChanged.connect(self._update_dirty)
+        self.title_edit.textEdited.connect(lambda _text: self._autosave_timer.start())
+        self.title_edit.editingFinished.connect(self._flush_autosave)
         column.addWidget(self.title_edit)
         self.keywords_edit = TagEditor()
-        self.keywords_edit.changed.connect(self._update_dirty)
+        self.keywords_edit.changed.connect(self._autosave)
         column.addWidget(self.keywords_edit)
         column.addWidget(self._field_label("Категория"))
         self.category_box = make_combo()
         self.category_box.addItem("—", "")
         for code, name in CATEGORIES.items():
             self.category_box.addItem(name, str(code))
-        self.category_box.currentIndexChanged.connect(self._update_dirty)
+        self.category_box.currentIndexChanged.connect(lambda _index: self._autosave())
         column.addWidget(self.category_box)
 
-        self.dirty_label = QLabel("")
-        self.dirty_label.setProperty("role", "warn")
-        column.addWidget(self.dirty_label)
-        buttons = QHBoxLayout()
-        self.revert_button = QPushButton("Отменить")
-        self.revert_button.clicked.connect(self._load_panel)
-        self.save_button = QPushButton("Сохранить")
-        self.save_button.setProperty("primary", True)
-        self.save_button.clicked.connect(self._save_panel)
-        buttons.addWidget(self.revert_button)
-        buttons.addWidget(self.save_button)
-        column.addLayout(buttons)
         self.approve_button = QPushButton("Одобрить файл")
         self.approve_button.clicked.connect(lambda: self._approve([self._selected]))
         column.addWidget(self.approve_button)
@@ -542,17 +537,9 @@ class DescriptionPage(TaskPage):
     def _choose(self, filename: str) -> None:
         if filename == self._selected:
             return
-        if self._is_dirty() and not self._confirm_discard():
-            self._select_in_views()
-            return
+        self._flush_autosave()  # what was typed in the card is saved before another file opens
         self._selected = filename
         self._load_panel()
-
-    def _confirm_discard(self) -> bool:
-        answer = QMessageBox.question(
-            self, "Есть несохранённые изменения", "Отбросить правки в панели «Метаданные»?"
-        )
-        return answer == QMessageBox.StandardButton.Yes
 
     def _select_in_views(self) -> None:
         names = [row["filename"] for row in self._current_rows()]
@@ -660,8 +647,7 @@ class DescriptionPage(TaskPage):
         target = names[max(0, min(len(names) - 1, position))]
         if target == self._selected:
             return
-        if self._is_dirty() and not self._confirm_discard():
-            return
+        self._flush_autosave()
         self._selected = target
         self._page = names.index(target) // self._page_size()
         self._fill_views()
@@ -694,7 +680,7 @@ class DescriptionPage(TaskPage):
                 self._show_row(row)
         finally:
             self._loading = was_loading
-        self._update_dirty()
+        self._update_controls()
         QTimer.singleShot(0, self.card_body.fit_height)  # once the new tags have been laid out
 
     def _show_row(self, row: sqlite3.Row) -> None:
@@ -710,9 +696,17 @@ class DescriptionPage(TaskPage):
         self.status_chip.setVisible(True)
         self.info_label.setText(f"{format_size(row['size'])} · {resolution_text(row['path'])}".rstrip(" ·"))
         self.reason_label.setText(row["error"] or "")
-        self.title_edit.setText(row["title"])
-        self.keywords_edit.set_tags(json.loads(row["keywords"]))
-        self.category_box.setCurrentIndex(max(0, self.category_box.findData(row["category"])))
+        same_file = row["filename"] == self._shown_file
+        self._shown_file = row["filename"]
+        typing = self._autosave_timer.isActive() or self.title_edit.hasFocus()
+        if not (same_file and typing) and self.title_edit.text() != row["title"]:
+            self.title_edit.setText(row["title"])  # a refresh never overwrites what is being typed
+        stored_tags = tuple(json.loads(row["keywords"]))
+        if self.keywords_edit.tags() != stored_tags:
+            self.keywords_edit.set_tags(stored_tags)
+        category_index = max(0, self.category_box.findData(row["category"]))
+        if self.category_box.currentIndex() != category_index:
+            self.category_box.setCurrentIndex(category_index)
 
     def _panel_values(self) -> tuple[str, tuple[str, ...], str]:
         return (
@@ -721,19 +715,31 @@ class DescriptionPage(TaskPage):
             str(self.category_box.currentData()),
         )
 
-    def _is_dirty(self) -> bool:
+    def _stored_values(self) -> tuple[str, tuple[str, ...], str] | None:
         row = self._selected_row()
         if row is None:
-            return False
-        return self._panel_values() != (row["title"], tuple(json.loads(row["keywords"])), row["category"])
+            return None
+        return (row["title"], tuple(json.loads(row["keywords"])), row["category"])
 
-    def _update_dirty(self) -> None:
+    def _autosave(self) -> None:
+        """Save the card's fields as soon as they change (title: after a short pause in typing)."""
+        self._autosave_timer.stop()
+        if self._loading or not self._selected:
+            return
+        values = self._panel_values()
+        if values == self._stored_values():
+            return
+        title, keywords, category = values
+        self._save(self._selected, title, keywords, category)
+
+    def _flush_autosave(self) -> None:
+        """Save a title that is still waiting for its pause, e.g. before another file is opened."""
+        if self._autosave_timer.isActive():
+            self._autosave()
+
+    def _update_controls(self) -> None:
         if self._loading:
             return
-        dirty = self._is_dirty()
-        self.dirty_label.setText("● Есть несохранённые изменения" if dirty else "")
-        self.save_button.setEnabled(dirty)
-        self.revert_button.setEnabled(dirty)
         row = self._selected_row()
         self.approve_button.setVisible(row is not None and row["status"] == state.REVIEW)
         self.card_caption_button.setEnabled(row is not None and row["status"] == state.NEEDS_METADATA)
@@ -741,10 +747,6 @@ class DescriptionPage(TaskPage):
         index = names.index(self._selected) if self._selected in names else -1
         self.prev_button.setEnabled(index > 0)
         self.next_button.setEnabled(0 <= index < len(names) - 1)
-
-    def _save_panel(self) -> None:
-        title, keywords, category = self._panel_values()
-        self._save(self._selected, title, keywords, category)
 
     def _cell_edited(self, item: QTableWidgetItem) -> None:
         if self._loading or item.column() not in (COL_TITLE, COL_KEYWORDS, COL_CATEGORY):

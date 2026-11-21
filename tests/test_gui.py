@@ -271,8 +271,8 @@ def test_description_editing_saves_and_marks_file_described(app, window, prefs):
     description.title_edit.setText("Forest path")
     description.keywords_edit.input.setText("forest, path, forest")
     description.keywords_edit.input.returnPressed.emit()
-    assert "несохранённые" in description.dirty_label.text()
-    description._save_panel()
+    description.title_edit.textEdited.emit("Forest path")  # the title is saved after a pause in typing
+    description._flush_autosave()
     app.processEvents()
 
     conn = state.open_db(prefs.db_path)
@@ -700,7 +700,8 @@ def test_saving_a_file_that_was_submitted_meanwhile_is_refused_with_a_message(ap
     conn.execute("UPDATE files SET batch_id = 1, status = 'submitted'")  # it moved on behind the page's back
     conn.commit()
     description.title_edit.setText("Late edit")
-    description._save_panel()
+    description.title_edit.textEdited.emit("Late edit")
+    description._flush_autosave()
     app.processEvents()
     assert "уже отправлен" in description.output.toPlainText()
     assert conn.execute("SELECT title FROM files").fetchone()[0] == ""
@@ -1219,3 +1220,52 @@ def test_empty_title_keywords_and_category_cells_are_underlined_in_red(app, wind
         assert count_red_pixels(description.table, rows["empty.jpg"], column) > 20, column
         assert count_red_pixels(description.table, rows["full.jpg"], column) == 0, column
     assert count_red_pixels(description.table, rows["empty.jpg"], 0) == 0  # only the three, not the name
+
+
+def stored_row(prefs, filename):
+    conn = state.open_db(prefs.db_path)
+    return conn.execute(
+        "SELECT title, keywords, category FROM files WHERE filename = ?", (filename,)
+    ).fetchone()
+
+
+def test_card_saves_by_itself_without_save_and_cancel_buttons(app, window, prefs):
+    seed_files(prefs, ["a.jpg", "b.jpg"])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    for gone in ("save_button", "revert_button", "dirty_label"):
+        assert not hasattr(description, gone)
+
+    description.table.selectRow(0)
+    first = description.table.item(0, 0).text()
+
+    description.keywords_edit.input.setText("forest")
+    description.keywords_edit.input.returnPressed.emit()  # a tag is saved at once
+    assert json.loads(stored_row(prefs, first)["keywords"]) == ["forest"]
+
+    description.category_box.setCurrentIndex(description.category_box.findData("5"))  # so is the category
+    assert stored_row(prefs, first)["category"] == "5"
+
+    description.title_edit.setText("Typed title")
+    description.title_edit.textEdited.emit("Typed title")
+    assert stored_row(prefs, first)["title"] == ""  # the title waits for a pause in typing ...
+    description.table.selectRow(1)  # ... or for another file to be opened
+    assert stored_row(prefs, first)["title"] == "Typed title"
+    assert description.title_edit.text() == ""  # the second file's own (empty) title
+
+
+def test_title_is_saved_after_a_pause_and_a_refresh_does_not_overwrite_typing(app, window, prefs):
+    seed_files(prefs, ["a.jpg"])
+    window.nav.setCurrentRow(1)
+    window.show()
+    description = page(window, "Описание")
+    description.refresh()
+    description.table.selectRow(0)
+    description.title_edit.setFocus()
+    description.title_edit.setText("Half typed")
+    description.title_edit.textEdited.emit("Half typed")
+    description.refresh()  # data arrived meanwhile: the unsaved text stays
+    assert description.title_edit.text() == "Half typed"
+    description._autosave_timer.timeout.emit()  # the pause is over
+    assert stored_row(prefs, "a.jpg")["title"] == "Half typed"
