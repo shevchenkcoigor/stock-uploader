@@ -19,6 +19,17 @@ def thumbnail_pixmap(path: str, side: int) -> QPixmap:
     return QPixmap() if image.isNull() else QPixmap.fromImage(image)
 
 
+THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
+DEFAULT_THUMB_SIZE = "M"
+THUMB_SIZE_KEY = "thumb_size"
+ROW_PADDING = 8
+
+
+def thumb_size_key(saved: str) -> str:
+    """The saved S/M/L choice, or the default when it is missing or unknown."""
+    return saved if saved in THUMB_SIZES else DEFAULT_THUMB_SIZE
+
+
 # ---- the design's ThumbnailTile: a framed square preview, 40px in lists --------------------------
 
 DEVICE_SCALE = 2  # drawn at twice the size so it stays sharp on retina screens
