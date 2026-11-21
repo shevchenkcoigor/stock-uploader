@@ -5,6 +5,7 @@ import sqlite3
 from typing import cast
 
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QTimer
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QListView,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -36,7 +38,7 @@ from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
-from adobe_stock.gui.status import chip, chip_html, drop_cell_widgets, status_cell, view_of
+from adobe_stock.gui.status import chip, chip_html, dot_icon, drop_cell_widgets, status_cell, view_of
 from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import image_size, thumbnail_pixmap, tile_icon
@@ -233,6 +235,7 @@ class DescriptionPage(TaskPage):
         self.table.setColumnWidth(COL_STATUS, 130)
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.table.itemChanged.connect(self._cell_edited)
+        self.table.cellClicked.connect(self._status_cell_clicked)
         self.table.itemChanged.connect(self._table_check_changed)
         self.table.horizontalHeader().setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -659,17 +662,25 @@ class DescriptionPage(TaskPage):
         if edited is not None:
             parts.append(f"Изменено файлов: {edited} из {len(names)}")
         if moved is not None:
-            parts.append(f"статус сменён: {moved} из {len(names)}")
-        self.status.setText(", ".join(parts))
+            parts.append(self._moved_text(moved, names, str(status)))
+        self.status.setText(". ".join(parts))
         QTimer.singleShot(0, self.ctx.data_changed.emit)
 
-    def _change_status(self, index: int) -> None:
-        """The card's status list was used by the person: move the open file."""
-        status = self.status_box.itemData(index)
-        if not self._selected or status is None:
-            return
+    def _moved_text(self, moved: int, names: list[str], status: str) -> str:
+        """What a status change did; a file without a description cannot leave "new", and that is said."""
+        text = f"Статус сменён: {moved} из {len(names)}"
+        if status == state.NEEDS_METADATA:
+            return text
+        wanted = set(names)
+        without_text = sum(
+            1
+            for row in self._rows
+            if row["filename"] in wanted and not (row["title"] and json.loads(row["keywords"]))
+        )
+        return f"{text} (без заголовка или ключевых слов: {without_text})" if without_text else text
+
+    def _move_files(self, names: list[str], status: str) -> None:
         batch_size = self.ctx.prefs.batch_size
-        names = [self._selected]
         try:
             report = self.ctx.job(
                 lambda conn, progress, should_stop: services.set_status(conn, names, status, batch_size)
@@ -677,9 +688,39 @@ class DescriptionPage(TaskPage):
         except Exception as error:  # a locked or damaged database
             self.write(f"ОШИБКА: не удалось сменить статус: {error}")
             return
-        if isinstance(report, services.ApproveReport) and report.count == 0:
-            self.status.setText("Статус не сменён: сначала нужны заголовок и ключевые слова")
+        if isinstance(report, services.ApproveReport):
+            self.status.setText(self._moved_text(report.count, names, status))
         QTimer.singleShot(0, self.ctx.data_changed.emit)  # a refused change puts the old status back
+
+    def _change_status(self, index: int) -> None:
+        """The card's status list was used by the person: move the open file."""
+        status = self.status_box.itemData(index)
+        if self._selected and status is not None:
+            self._move_files([self._selected], str(status))
+
+    def _status_menu(self, current: str) -> QMenu:
+        menu = QMenu(self)
+        for key in state.EDITABLE_STATUSES:
+            view = view_of(key)
+            action = menu.addAction(dot_icon(view.token), view.label)
+            action.setData(key)
+            action.setCheckable(True)
+            action.setChecked(key == current)
+        return menu
+
+    def _pick_status(self, current: str) -> str | None:
+        """Show the list of statuses at the mouse; the chosen one, or None when it is closed."""
+        chosen = self._status_menu(current).exec(QCursor.pos())
+        return None if chosen is None else str(chosen.data())
+
+    def _status_cell_clicked(self, row: int, column: int) -> None:
+        """A click on the status of a list row opens the list of statuses, like the category cell does."""
+        rows = self._current_rows()
+        if column != COL_STATUS or self._loading or not 0 <= row < len(rows):
+            return
+        status = self._pick_status(rows[row]["status"])
+        if status is not None:
+            self._move_files([rows[row]["filename"]], status)
 
     def _step(self, delta: int) -> None:
         names = [row["filename"] for row in self._visible]

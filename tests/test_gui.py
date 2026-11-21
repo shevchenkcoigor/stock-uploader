@@ -981,6 +981,54 @@ def test_status_is_changed_next_to_the_category_in_the_bulk_bar_and_the_card(app
     assert row["status"] == "pending"
 
 
+def test_a_refused_status_change_says_why(app, window, prefs):
+    seed_files(prefs, ["a.jpg", "b.jpg"])  # new, no title and no keywords
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    description.table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 6), True)
+    bar = description.bulk_bar
+    bar.status_box.setCurrentIndex(bar.status_box.findData(state.PENDING))
+    bar.apply_button.click()
+    app.processEvents()
+    assert "0 из 2" in description.status.text()
+    assert "без заголовка или ключевых слов: 2" in description.status.text()
+
+
+def test_status_is_chosen_from_a_menu_in_the_list_row(app, window, prefs, monkeypatch):
+    from adobe_stock.gui.description_page import COL_STATUS
+
+    seed_files(prefs, ["a.jpg", "b.jpg"])
+    describe_by_sql(prefs, ["a.jpg"])  # a.jpg described, b.jpg new
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    row = next(r for r in range(2) if description.table.item(r, 0).text() == "a.jpg")
+    conn = state.open_db(prefs.db_path)
+
+    def status_of_a():
+        return conn.execute("SELECT status FROM files WHERE filename = 'a.jpg'").fetchone()[0]
+
+    menu = description._status_menu(state.PENDING)  # the menu lists the statuses, the current one ticked
+    assert [action.text() for action in menu.actions()] == [
+        "Новый",
+        "Описан",
+        "Проверить",
+        "На SFTP",
+    ]  # as in the filter
+    assert [action.isChecked() for action in menu.actions()] == [False, True, False, False]
+
+    monkeypatch.setattr(description, "_pick_status", lambda current: state.REVIEW)
+    description._status_cell_clicked(row, COL_STATUS)
+    app.processEvents()
+    assert status_of_a() == "review"
+
+    description._status_cell_clicked(row, 0)  # other columns open nothing
+    monkeypatch.setattr(description, "_pick_status", lambda current: None)  # the menu was closed
+    description._status_cell_clicked(row, COL_STATUS)
+    assert status_of_a() == "review"
+
+
 def test_description_checkboxes_mark_files_for_the_bulk_bar(app, window, prefs):
     seed_files(prefs, [f"f{n:02d}.jpg" for n in range(25)])
     window.nav.setCurrentRow(1)
