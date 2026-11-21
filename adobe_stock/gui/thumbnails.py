@@ -32,7 +32,7 @@ CACHE_SIZE = 512
 
 
 @lru_cache(maxsize=CACHE_SIZE)
-def tile_pixmap(path: str, side: int, warning: bool, theme: str) -> QPixmap:
+def tile_pixmap(path: str, side: int, badge: str, theme: str) -> QPixmap:
     """The preview on a sunken backing with a border; a glyph when the picture cannot be read."""
     colors = TOKENS[theme]
     pixels = side * DEVICE_SCALE
@@ -55,8 +55,8 @@ def tile_pixmap(path: str, side: int, warning: bool, theme: str) -> QPixmap:
     painter.setPen(QPen(QColor(colors["border"]), BORDER_WIDTH * DEVICE_SCALE))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawRoundedRect(frame, radius, radius)
-    if warning:
-        _draw_dot(painter, pixels, colors)
+    if badge:
+        _draw_dot(painter, pixels, colors, badge)
     painter.end()
     tile.setDevicePixelRatio(DEVICE_SCALE)
     return tile
@@ -80,15 +80,16 @@ def _draw_glyph(painter: QPainter, pixels: int, color: QColor) -> None:
     painter.drawPolyline(mountain)
 
 
-def _draw_dot(painter: QPainter, pixels: int, colors) -> None:
+def _draw_dot(painter: QPainter, pixels: int, colors, token: str) -> None:
     diameter = DOT_DIAMETER * DEVICE_SCALE
     margin = DOT_MARGIN * DEVICE_SCALE
     painter.setPen(
         QPen(QColor(colors["surface"]), 2 * DEVICE_SCALE)
     )  # the border keeps it readable on any picture
-    painter.setBrush(QColor(colors["warning"]))
+    painter.setBrush(QColor(colors[token]))
     painter.drawEllipse(QRectF(pixels - diameter - margin, margin, diameter, diameter))
 
 
-def tile_icon(path: str, side: int, warning: bool = False) -> QIcon:
-    return QIcon(tile_pixmap(path, side, warning, active_theme()))
+def tile_icon(path: str, side: int, badge: str = "") -> QIcon:
+    """`badge` is a colour token (e.g. "warning"): a dot of that colour marks the tile's corner."""
+    return QIcon(tile_pixmap(path, side, badge, active_theme()))

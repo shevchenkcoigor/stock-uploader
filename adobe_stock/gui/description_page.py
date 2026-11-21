@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from adobe_stock import caption, services, state
 from adobe_stock.categories import CATEGORIES
 from adobe_stock.gui.context import AppContext
+from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager, pages_in
 from adobe_stock.gui.status import drop_cell_widgets, status_cell, view_of
@@ -40,10 +41,15 @@ PANEL_WIDTH = 320
 LIST_PAGE_SIZE = 20
 TILES_PAGE_SIZE = 60
 BYTES_IN_MB = 1024 * 1024
-COLUMNS = ("Имя", "Заголовок", "Ключевые слова", "Размер", "Статус")
-COL_NAME, COL_TITLE, COL_KEYWORDS, COL_SIZE, COL_STATUS = range(len(COLUMNS))
-HEADER_FIELDS = ("name", "title", "keywords", "size", "status")  # the sort field of each column
+COLUMNS = ("Имя", "Заголовок", "Ключевые слова", "Категория", "Размер", "Статус")
+COL_NAME, COL_TITLE, COL_KEYWORDS, COL_CATEGORY, COL_SIZE, COL_STATUS = range(len(COLUMNS))
+HEADER_FIELDS = ("name", "title", "keywords", "category", "size", "status")  # the sort field of each column
 FILTER_ALL = "all"
+
+
+def category_name(code: str) -> str:
+    """The category's name for a stored code; empty when none is set (or the code is unknown)."""
+    return CATEGORIES.get(int(code), "") if code.isdigit() else ""
 
 
 def format_size(size: int) -> str:
@@ -57,6 +63,8 @@ def sort_key(field: str):
         return lambda row: (row["title"] == "", row["title"].lower())  # empty ones go last
     if field == "keywords":
         return lambda row: (row["keywords"] == "[]", row["keywords"].lower())
+    if field == "category":
+        return lambda row: (not row["category"], category_name(row["category"]).lower())
     if field == "size":
         return lambda row: row["size"]
     return lambda row: (view_of(row["status"]).rank, row["filename"].lower())
@@ -155,6 +163,7 @@ class DescriptionPage(TaskPage):
             COL_KEYWORDS, self.table.horizontalHeader().ResizeMode.Stretch
         )
         self.table.setColumnWidth(COL_NAME, 190)
+        self.table.setColumnWidth(COL_CATEGORY, 150)
         self.table.setColumnWidth(COL_SIZE, 80)
         self.table.setColumnWidth(COL_STATUS, 110)
         self.table.itemSelectionChanged.connect(self._table_selected)
@@ -181,6 +190,10 @@ class DescriptionPage(TaskPage):
         self.tiles.setWordWrap(True)
         self.tiles.setSpacing(4)
         self.tiles.itemSelectionChanged.connect(self._tile_selected)
+        self.tiles.itemDoubleClicked.connect(lambda item: open_file(item.data(FILE_PATH_ROLE) or ""))
+        attach_file_menu(self.tiles, lambda pos: self._path_of(self.tiles.itemAt(pos)))
+        attach_file_menu(self.table, lambda pos: self._path_of(self._name_item(self.table.itemAt(pos))))
+        self.table.cellDoubleClicked.connect(self._cell_double_clicked)
 
         self.views = QStackedWidget()
         self.views.addWidget(self.table)
@@ -329,10 +342,22 @@ class DescriptionPage(TaskPage):
             self._loading = False
         self._select_in_views()
 
+    def _name_item(self, item):
+        return self.table.item(item.row(), COL_NAME) if item is not None else None
+
+    @staticmethod
+    def _path_of(item) -> str:
+        return (item.data(FILE_PATH_ROLE) or "") if item is not None else ""
+
+    def _cell_double_clicked(self, row: int, column: int) -> None:
+        if column == COL_NAME:  # the other cells are edited on double-click
+            open_file(self._path_of(self.table.item(row, COL_NAME)))
+
     def _set_table_row(self, index: int, row: sqlite3.Row) -> None:
         name = QTableWidgetItem(row["filename"])
-        name.setIcon(tile_icon(row["path"], ROW_THUMB, row["status"] == state.REVIEW))
+        name.setIcon(tile_icon(row["path"], ROW_THUMB))
         name.setToolTip(row["path"])
+        name.setData(FILE_PATH_ROLE, row["path"])
         name.setFont(mono_font())
         name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(index, COL_NAME, name)
@@ -340,6 +365,9 @@ class DescriptionPage(TaskPage):
         self.table.setItem(index, COL_KEYWORDS, QTableWidgetItem(", ".join(json.loads(row["keywords"]))))
         size = QTableWidgetItem(format_size(row["size"]))
         size.setFlags(size.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        category = QTableWidgetItem(category_name(row["category"]))
+        category.setFlags(category.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.table.setItem(index, COL_CATEGORY, category)
         self.table.setItem(index, COL_SIZE, size)
         status = QTableWidgetItem()  # the chip below is the visible part; the label stays readable here
         status.setData(Qt.ItemDataRole.AccessibleTextRole, view_of(row["status"]).label)
@@ -348,11 +376,12 @@ class DescriptionPage(TaskPage):
         self.table.setCellWidget(index, COL_STATUS, status_cell(row["status"]))
 
     def _add_tile(self, row: sqlite3.Row) -> None:
+        view = view_of(row["status"])
         item = QListWidgetItem(
-            tile_icon(row["path"], TILE_THUMB, row["status"] == state.REVIEW), row["filename"]
+            tile_icon(row["path"], TILE_THUMB, view.token), f"{row['filename']}\n{view.label}"
         )
         item.setData(Qt.ItemDataRole.UserRole, row["filename"])
-        view = view_of(row["status"])
+        item.setData(FILE_PATH_ROLE, row["path"])
         item.setToolTip(f"{row['filename']}\n{view.label}")
         self.tiles.addItem(item)
 

@@ -499,14 +499,14 @@ def test_tile_pixmap_is_a_sharp_square_with_glyph_for_unreadable_files_and_a_war
     broken.write_text("not a picture", encoding="utf-8")
     colors = theme.TOKENS[theme.THEME_LIGHT]
 
-    picture = tile_pixmap(str(good), 40, False, theme.THEME_LIGHT)
+    picture = tile_pixmap(str(good), 40, "", theme.THEME_LIGHT)
     assert picture.width() == 40 * DEVICE_SCALE and picture.devicePixelRatio() == DEVICE_SCALE
     centre = picture.toImage().pixelColor(picture.width() // 2, picture.height() // 2)
     assert centre.red() > 150 and centre.green() < 80  # the picture itself, fitted in the middle
     assert picture.toImage().pixelColor(0, 0).alpha() == 0  # rounded corners, not a plain square
 
-    plain = tile_pixmap(str(broken), 40, False, theme.THEME_LIGHT).toImage()
-    flagged = tile_pixmap(str(broken), 40, True, theme.THEME_LIGHT).toImage()
+    plain = tile_pixmap(str(broken), 40, "", theme.THEME_LIGHT).toImage()
+    flagged = tile_pixmap(str(broken), 40, "warning", theme.THEME_LIGHT).toImage()
     dot = (plain.width() - 8 * DEVICE_SCALE, 8 * DEVICE_SCALE)
     assert flagged.pixelColor(*dot).name() == colors["warning"]
     assert plain.pixelColor(*dot).name() != colors["warning"]
@@ -576,15 +576,15 @@ def test_description_sorts_only_by_the_table_headers(app, window, prefs):
     description.sorter.click(0)
     assert [description.table.item(r, 0).text() for r in range(3)] == ["c.jpg", "b.jpg", "a.jpg"]
     assert header_labels(description.table)[0] == "Имя ↓"
-    description.sorter.click(3)  # size
+    description.sorter.click(4)  # size
     assert (
-        header_labels(description.table)[3] == "Размер ↑" and header_labels(description.table)[0] == "Имя ↕"
+        header_labels(description.table)[4] == "Размер ↑" and header_labels(description.table)[0] == "Имя ↕"
     )
 
 
 def cell_status(table, row: int) -> str:
     """The status word of a row (the chip shows it; the item keeps it readable)."""
-    return table.item(row, 4).data(Qt.ItemDataRole.AccessibleTextRole)
+    return table.item(row, 5).data(Qt.ItemDataRole.AccessibleTextRole)
 
 
 def test_tag_editor_adds_removes_renames_and_deduplicates(app):
@@ -697,3 +697,71 @@ def test_saving_a_file_that_is_already_in_a_batch_is_refused_with_a_message(app,
     assert "уже в батче" in description.output.toPlainText()
     assert conn.execute("SELECT title FROM files").fetchone()[0] == ""
     assert description.table.rowCount() == 0  # and the list caught up
+
+
+def test_double_click_on_a_scan_row_opens_the_file(app, window, prefs, monkeypatch):
+    opened = []
+    monkeypatch.setattr("adobe_stock.gui.scan_page.open_file", opened.append)
+    seed_files(prefs, ["bad.jpg"])
+    conn = state.open_db(prefs.db_path)
+    conn.execute("UPDATE files SET status = 'invalid', error = 'not a JPEG'")
+    conn.commit()
+    scan_page = page(window, "Скан")
+    scan_page.refresh()
+    scan_page.table.cellDoubleClicked.emit(0, 1)  # any cell of the row, not only the name
+    assert [Path(path).name for path in opened] == ["bad.jpg"]
+
+
+def test_description_opens_a_file_by_double_click_on_its_name_only(app, window, prefs, monkeypatch):
+    opened = []
+    monkeypatch.setattr("adobe_stock.gui.description_page.open_file", opened.append)
+    seed_files(prefs, ["a.jpg"])
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    description.table.cellDoubleClicked.emit(0, 1)  # the title cell is edited instead
+    assert opened == []
+    description.table.cellDoubleClicked.emit(0, 0)
+    assert [Path(path).name for path in opened] == ["a.jpg"]
+
+    description.tiles_button.click()
+    description.tiles.itemDoubleClicked.emit(description.tiles.item(0))
+    assert [Path(path).name for path in opened] == ["a.jpg", "a.jpg"]
+
+
+def test_open_and_reveal_refuse_a_file_that_is_gone(tmp_path, monkeypatch):
+    from adobe_stock.gui import file_actions
+
+    calls = []
+    monkeypatch.setattr(file_actions.QDesktopServices, "openUrl", lambda url: calls.append(url) or True)
+    monkeypatch.setattr(file_actions.subprocess, "Popen", lambda command: calls.append(command))
+    assert file_actions.open_file(str(tmp_path / "gone.jpg")) is False
+    assert file_actions.reveal_file("") is False
+    assert calls == []
+    real = tmp_path / "here.jpg"
+    real.write_bytes(b"x")
+    assert file_actions.open_file(str(real)) is True
+    assert file_actions.reveal_file(str(real)) is True
+    assert len(calls) == 2
+
+
+def test_description_shows_category_name_and_status_on_tiles(app, window, prefs):
+    seed_files(prefs, ["a.jpg", "b.jpg"])
+    conn = state.open_db(prefs.db_path)
+    conn.execute("UPDATE files SET category = '5' WHERE filename = 'a.jpg'")
+    conn.commit()
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    from adobe_stock.categories import CATEGORIES
+
+    shown = {description.table.item(r, 0).text(): description.table.item(r, 3).text() for r in range(2)}
+    assert shown == {"a.jpg": CATEGORIES[5], "b.jpg": ""}  # the name, never the code
+    assert header_labels(description.table)[3].startswith("Категория")
+    description.sorter.click(3)
+    assert description.table.item(0, 0).text() == "a.jpg"
+    description.sorter.click(3)
+    assert description.table.item(0, 0).text() == "b.jpg"  # descending: the empty one comes first
+
+    description.tiles_button.click()
+    assert description.tiles.item(0).text().endswith("Новый")
