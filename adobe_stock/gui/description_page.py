@@ -265,7 +265,7 @@ class DescriptionPage(TaskPage):
         title_row.addWidget(self.status_chip)
         column.addLayout(title_row)
         caption_row = QHBoxLayout()
-        self.card_model = self._make_model_combo("Модель: ")
+        self.card_model = self._make_model_combo()
         caption_row.addWidget(self.card_model, 1)
         self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
         self.card_caption_button.setProperty("primary", True)

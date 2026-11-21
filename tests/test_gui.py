@@ -1009,7 +1009,7 @@ def test_card_shows_status_chip_and_resolution_and_caption_sits_above_the_pictur
     assert not description.status_chip.isHidden() and "Новый" in description.status_chip.text()
     info = description.info_label.text()
     assert "МБ" in info and " × " in info and info.endswith("px")  # size, then the resolution
-    assert description.card_model.itemText(0).startswith("Модель: ")
+    assert description.card_model.itemText(0) == "Haiku 5.5"  # just the name, no "Модель:" in front
     window.show()
     app.processEvents()
     panel = description.preview.parentWidget()
