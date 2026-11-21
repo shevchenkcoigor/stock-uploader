@@ -37,6 +37,7 @@ from adobe_stock.gui.status import chip, chip_html, drop_cell_widgets, status_ce
 from adobe_stock.gui.tag_editor import TagEditor, parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.thumbnails import thumbnail_pixmap, tile_icon
+from adobe_stock.gui.view_icons import grid_icon, list_icon
 from adobe_stock.gui.widgets import make_combo, mono_font
 
 THUMB_SIZES = {"S": (24, 80), "M": (40, 120), "L": (72, 180)}  # (list row, tile) picture side
@@ -144,32 +145,36 @@ class DescriptionPage(TaskPage):
             self.status_filter.addItem(view_of(key).label, key)
         self.status_filter.currentIndexChanged.connect(self._filters_changed)
         head.addWidget(self.status_filter)
-        self.list_button = clean_button("Список", segment=True)
-        self.tiles_button = clean_button("Плитки", segment=True)
-        for button in (self.list_button, self.tiles_button):
-            button.setCheckable(True)
-        self.list_button.setChecked(True)
-        self.list_button.clicked.connect(lambda: self._set_view(tiles=False))
-        self.tiles_button.clicked.connect(lambda: self._set_view(tiles=True))
-        head.addWidget(self.list_button)
-        head.addWidget(self.tiles_button)
         saved_size = self.ctx.prefs.text(THUMB_SIZE_KEY, DEFAULT_THUMB_SIZE)
         self._thumb_size = saved_size if saved_size in THUMB_SIZES else DEFAULT_THUMB_SIZE
         self.size_buttons: dict[str, QPushButton] = {}
-        sizes = QHBoxLayout()
-        sizes.setSpacing(-1)  # the buttons share their borders: one joined group
-        for number, key in enumerate(THUMB_SIZES):
+        sizes = self._joined_group()
+        for key in THUMB_SIZES:
             button = clean_button(key, segment=True, compact=True)
-            button.setProperty(
-                "joint", "first" if number == 0 else "last" if number == len(THUMB_SIZES) - 1 else "mid"
-            )
             button.setCheckable(True)
             button.setChecked(key == self._thumb_size)
             button.setToolTip({"S": "Мелкие превью", "M": "Средние превью", "L": "Крупные превью"}[key])
             button.clicked.connect(lambda _checked=False, size=key: self._set_thumb_size(size))
             self.size_buttons[key] = button
             sizes.addWidget(button)
+        self._join(sizes)
         head.addLayout(sizes)
+        self.list_button = clean_button("", segment=True, compact=True)
+        self.list_button.setIcon(list_icon())
+        self.list_button.setToolTip("Список")
+        self.tiles_button = clean_button("", segment=True, compact=True)
+        self.tiles_button.setIcon(grid_icon())
+        self.tiles_button.setToolTip("Плитки")
+        for button in (self.list_button, self.tiles_button):
+            button.setCheckable(True)
+        self.list_button.setChecked(True)
+        self.list_button.clicked.connect(lambda: self._set_view(tiles=False))
+        self.tiles_button.clicked.connect(lambda: self._set_view(tiles=True))
+        views = self._joined_group()
+        views.addWidget(self.list_button)
+        views.addWidget(self.tiles_button)
+        self._join(views)
+        head.addLayout(views)
         column.addLayout(head)
 
         self.table = QTableWidget(0, len(COLUMNS))
@@ -736,6 +741,21 @@ class DescriptionPage(TaskPage):
     @property
     def _tile_thumb(self) -> int:
         return THUMB_SIZES[self._thumb_size][1]
+
+    @staticmethod
+    def _joined_group() -> QHBoxLayout:
+        group = QHBoxLayout()
+        group.setSpacing(-1)  # neighbours share a border: one joined control
+        return group
+
+    @staticmethod
+    def _join(group: QHBoxLayout) -> None:
+        """Round only the outer corners of a row of segment buttons."""
+        items = (group.itemAt(i) for i in range(group.count()))
+        buttons = [widget for widget in (item.widget() for item in items if item is not None) if widget]
+        for number, button in enumerate(buttons):
+            joint = "first" if number == 0 else "last" if number == len(buttons) - 1 else "mid"
+            button.setProperty("joint", joint)
 
     def _fit_name_column(self) -> None:
         self.table.setColumnWidth(COL_NAME, NAME_COLUMN_BASE + self._row_thumb)
