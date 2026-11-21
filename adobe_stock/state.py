@@ -524,6 +524,17 @@ def pending_batches(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def batch_status_counts(conn: sqlite3.Connection) -> dict[int, tuple[tuple[str, int], ...]]:
+    """For every batch the number of its files per status: what the batch's own status is made of."""
+    counts: dict[int, list[tuple[str, int]]] = {}
+    for row in conn.execute(
+        "SELECT batch_id, status, COUNT(*) AS n FROM files WHERE batch_id IS NOT NULL "
+        "GROUP BY batch_id, status ORDER BY batch_id, status"
+    ):
+        counts.setdefault(row["batch_id"], []).append((row["status"], row["n"]))
+    return {batch: tuple(items) for batch, items in counts.items()}
+
+
 def batch_files(conn: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
     """Every file of a batch with its status, in upload order: what the upload page lists."""
     return conn.execute(

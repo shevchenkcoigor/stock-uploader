@@ -107,3 +107,10 @@ def test_mark_submitted_is_refused_until_the_whole_batch_is_uploaded(tmp_path):
     done = services.mark_submitted(conn, 1)
 
     assert done.count == 2 and done.waiting == ()
+
+
+def test_batch_status_counts_per_batch(tmp_path):
+    _, conn = scanned(tmp_path, ["a.jpg", "b.jpg", "c.jpg"])
+    state.mark_uploaded(conn, state.pending_files(conn)[0][0])
+
+    assert state.batch_status_counts(conn) == {1: ((state.PENDING, 2), (state.UPLOADED, 1))}

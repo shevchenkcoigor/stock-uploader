@@ -28,7 +28,7 @@ from adobe_stock.gui.empty_cell import EmptyCellDelegate
 from adobe_stock.gui.file_actions import FILE_PATH_ROLE, attach_file_menu, open_file
 from adobe_stock.gui.header_sort import HeaderSort
 from adobe_stock.gui.pager import Pager
-from adobe_stock.gui.status import StatusView, drop_cell_widgets, view_cell, view_of
+from adobe_stock.gui.status import StatusView, batch_status_text, drop_cell_widgets, view_cell, view_of
 from adobe_stock.gui.tag_editor import parse_keywords
 from adobe_stock.gui.task_page import TaskPage
 from adobe_stock.gui.widgets import mono_font
@@ -140,6 +140,7 @@ class CsvPage(TaskPage):
 
         self.files = self._make_files_table()
         self.table = self._make_rows_table()
+        self._batch_statuses: dict[int, tuple[tuple[str, int], ...]] = {}
         self._offered: list[sqlite3.Row] = []  # batches «+ CSV» can make a CSV for
         self.add_hint = QLabel(NOTHING_TO_ADD)
         self.add_hint.setProperty("role", "muted")
@@ -254,6 +255,7 @@ class CsvPage(TaskPage):
 
     def refresh(self) -> None:
         self._offered = self.ctx.read(csv_batches.batches_without_csv)
+        self._batch_statuses = self.ctx.read(state.batch_status_counts)
         self._entries = self.ctx.read(csv_batches.csv_entries)
         if self._batch not in {entry.batch_id for entry in self._entries}:
             self._batch = None
@@ -281,7 +283,10 @@ class CsvPage(TaskPage):
             name.setData(FILE_PATH_ROLE, entry.path)
             name.setToolTip(f"{entry.path}\nДвойной клик: открыть файл; правый клик: показать в папке")
             batch = read_only(QTableWidgetItem(entry.batch_name))
-            batch.setToolTip(f"Батч {entry.batch_id}: {entry.folder}, часть {entry.part}")
+            batch.setToolTip(
+                f"Батч {entry.batch_id}: {entry.folder}, часть {entry.part}\n"
+                f"Статус батча: {batch_status_text(self._batch_statuses.get(entry.batch_id, ()))}"
+            )
             self.files.setItem(index, COL_BATCH, batch)
             self.files.setItem(index, COL_ROWS, read_only(QTableWidgetItem(str(entry.rows))))
             self.files.setCellWidget(index, COL_STATE, view_cell(ENTRY_VIEWS[entry.state]))
@@ -433,7 +438,9 @@ class CsvPage(TaskPage):
         if not offered:
             return
         labels = [
-            f"Батч {r['batch_id']}: {r['folder']}, часть {r['part']} — {r['n']} файлов" for r in offered
+            f"Батч {r['batch_id']}: {r['folder']}, часть {r['part']} — {r['n']} файлов, "
+            f"статус: {batch_status_text(self._batch_statuses.get(r['batch_id'], ()))}"
+            for r in offered
         ]
         label, accepted = QInputDialog.getItem(self, "Новый CSV", "Батч", labels, len(labels) - 1, False)
         if accepted:

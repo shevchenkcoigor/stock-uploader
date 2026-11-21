@@ -35,6 +35,16 @@ def view_of(status: str) -> StatusView:
     return STATUS_VIEWS.get(status, UNKNOWN_VIEW)
 
 
+def batch_status_text(counts: tuple[tuple[str, int], ...]) -> str:
+    """A batch's status for people: one word when all its files share a status, else the counts."""
+    if not counts:
+        return "—"
+    ordered = sorted(counts, key=lambda item: view_of(item[0]).rank)
+    if len(ordered) == 1:
+        return view_of(ordered[0][0]).label
+    return ", ".join(f"{view_of(status).label}: {n}" for status, n in ordered)
+
+
 def dot_icon(token: str) -> QIcon:
     pixmap = QPixmap(DOT_SIDE, DOT_SIDE)
     pixmap.fill(Qt.GlobalColor.transparent)
