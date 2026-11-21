@@ -915,3 +915,77 @@ def test_header_checkbox_marks_and_unmarks_everything_without_sorting(app, windo
     app.processEvents()
     assert description.bulk_bar.count_label.text() == "Выбрано 0"
     assert header.check_state() == Qt.CheckState.Unchecked
+
+
+def scan_unlabelled(app, window, tmp_path, monkeypatch, names):
+    monkeypatch.setattr(caption, "find_claude", lambda: "claude")
+    monkeypatch.setattr(caption, "run_claude", make_policy_claude({}))
+    scan_page = page(window, "Скан")
+    scan_page.folder.setText(str(make_unlabelled_folder(tmp_path, names)))
+    scan_page._run()
+    finish(app, scan_page)
+    window.nav.setCurrentRow(1)
+    description = page(window, "Описание")
+    description.refresh()
+    return description
+
+
+def titles_by_file(prefs):
+    conn = state.open_db(prefs.db_path)
+    return {row["filename"]: row["title"] for row in conn.execute("SELECT filename, title FROM files")}
+
+
+def test_caption_describes_only_the_marked_files_and_everything_when_none_marked(
+    app, window, prefs, tmp_path, monkeypatch
+):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg", "b.jpg", "c.jpg", "d.jpg"])
+    names = [description.table.item(r, 0).text() for r in range(4)]
+    for row in (1, 3):
+        description.table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+    assert description.run_button.text() == "✦ Caption (2)"
+
+    description._run_caption()
+    finish(app, description)
+    titles = titles_by_file(prefs)
+    assert {name for name, title in titles.items() if title} == {names[1], names[3]}
+    assert "Подписано: 2 из 2" in description.output.toPlainText()
+
+    description.refresh()  # the described ones went to a batch; the rest are still new and nothing is marked
+    assert description.run_button.text() == "✦ Caption"
+    description._run_caption()
+    finish(app, description)
+    assert all(titles_by_file(prefs).values())
+
+
+def test_card_caption_describes_only_the_open_file_with_the_shared_model(
+    app, window, prefs, tmp_path, monkeypatch
+):
+    description = scan_unlabelled(app, window, tmp_path, monkeypatch, ["a.jpg", "b.jpg"])
+    assert not description.card_caption_button.isEnabled()  # no file is open
+    description.table.selectRow(1)
+    target = description.table.item(1, 0).text()
+    assert description.card_caption_button.isEnabled()
+
+    description.card_model.setCurrentIndex(1)  # the two pickers stay together
+    assert description.model.currentIndex() == 1
+    description.card_caption_button.click()
+    finish(app, description)
+    assert prefs.model == description.card_model.currentData()
+    assert {name for name, title in titles_by_file(prefs).items() if title} == {target}
+
+
+def test_files_needing_metadata_can_be_narrowed_to_names(tmp_path):
+    conn = state.open_db(tmp_path / "d.db")
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        conn.execute(
+            "INSERT INTO files (path, filename, sha256, size, status, updated_at) "
+            "VALUES (?, ?, ?, 1, 'needs_metadata', 'now')",
+            (f"/x/{name}", name, name),
+        )
+    conn.commit()
+    assert [p.name for p in state.files_needing_metadata(conn, 10)] == ["a.jpg", "b.jpg", "c.jpg"]
+    assert [p.name for p in state.files_needing_metadata(conn, 10, ["c.jpg", "a.jpg", "x.jpg"])] == [
+        "a.jpg",
+        "c.jpg",
+    ]
+    assert state.files_needing_metadata(conn, 10, []) == []

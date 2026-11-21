@@ -214,11 +214,12 @@ def caption_files(
     per_call: int = DEFAULT_IMAGES_PER_CALL,
     workers: int = 1,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    names: list[str] | None = None,
     on_progress: ProgressCallback = _ignore_progress,
     should_stop: StopCheck = _never,
 ) -> CaptionReport:
-    """Generate titles and keywords for files that have none, then batch them."""
-    todo = state.files_needing_metadata(conn, limit)
+    """Generate titles and keywords for files that have none (only `names` if given), then batch them."""
+    todo = state.files_needing_metadata(conn, limit, names)
     if not todo:
         return CaptionReport(0, 0, (), (), 0)
     groups = [todo[i : i + per_call] for i in range(0, len(todo), per_call)]

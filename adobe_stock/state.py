@@ -264,10 +264,20 @@ def assign_batches(conn: sqlite3.Connection, batch_size: int | None = None) -> i
         return batch_unassigned(conn, batch_size)
 
 
-def files_needing_metadata(conn: sqlite3.Connection, limit: int) -> list[Path]:
-    rows = conn.execute(
-        "SELECT path FROM files WHERE status = ? ORDER BY id LIMIT ?", (NEEDS_METADATA, limit)
-    )
+def files_needing_metadata(
+    conn: sqlite3.Connection, limit: int, names: list[str] | None = None
+) -> list[Path]:
+    """New files waiting for a title and keywords; `names` narrows it to those files (None: all of them)."""
+    if names is None:
+        rows = conn.execute(
+            "SELECT path FROM files WHERE status = ? ORDER BY id LIMIT ?", (NEEDS_METADATA, limit)
+        )
+    else:
+        rows = conn.execute(
+            "SELECT path FROM files WHERE status = ? AND filename IN (SELECT value FROM json_each(?)) "
+            "ORDER BY id LIMIT ?",
+            (NEEDS_METADATA, json.dumps(names), limit),
+        )
     return [Path(row["path"]) for row in rows]
 
 

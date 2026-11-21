@@ -7,6 +7,7 @@ from typing import cast
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -113,17 +114,14 @@ class DescriptionPage(TaskPage):
         heading = QLabel("Файлы")
         heading.setProperty("role", "heading")
         head.addWidget(heading)
-        self.model = make_combo()
-        for model_id, note in caption.MODELS:
-            self.model.addItem(model_id, model_id)
-            self.model.setItemData(
-                self.model.count() - 1, f"{model_id} — {note}", Qt.ItemDataRole.ToolTipRole
-            )
-        self.model.setCurrentIndex(max(self.model.findData(self.ctx.prefs.model), 0))
+        self.model = self._make_model_combo()
         head.addWidget(self.model)
         self.run_button = self.add_action(QPushButton("✦ Caption"))
-        self.run_button.setToolTip("Заголовок, ключевые слова и категория для всех файлов без описания")
-        self.run_button.clicked.connect(self._run_caption)
+        self.run_button.setToolTip(
+            "Заголовок, ключевые слова и категория: для отмеченных файлов, а если ничего не отмечено, "
+            "для всех файлов без описания"
+        )
+        self.run_button.clicked.connect(lambda: self._run_caption())
         head.addWidget(self.run_button)
         self.approve_all_button = self.add_action(QPushButton("Одобрить все на проверке"))
         self.approve_all_button.clicked.connect(lambda: self._approve(None))
@@ -245,6 +243,15 @@ class DescriptionPage(TaskPage):
         self.reason_label.setProperty("role", "warn")
         self.reason_label.setWordWrap(True)
         column.addWidget(self.reason_label)
+        caption_row = QHBoxLayout()
+        self.card_model = self._make_model_combo()
+        caption_row.addWidget(self.card_model, 1)
+        self.card_caption_button = self.add_action(QPushButton("✦ Caption"))
+        self.card_caption_button.setProperty("primary", False)
+        self.card_caption_button.setToolTip("Описать только этот файл")
+        self.card_caption_button.clicked.connect(lambda: self._run_caption([self._selected]))
+        caption_row.addWidget(self.card_caption_button)
+        column.addLayout(caption_row)
 
         column.addWidget(self._field_label("Заголовок"))
         self.title_edit = QLineEdit()
@@ -537,6 +544,7 @@ class DescriptionPage(TaskPage):
     def _show_marks(self) -> None:
         marked = self._marked_count()
         self.bulk_bar.set_marks(marked, len(self._visible))
+        self.run_button.setText(f"✦ Caption ({marked})" if marked else "✦ Caption")
         if marked == 0:
             state = Qt.CheckState.Unchecked
         else:
@@ -644,6 +652,7 @@ class DescriptionPage(TaskPage):
         self.revert_button.setEnabled(dirty)
         row = self._selected_row()
         self.approve_button.setVisible(row is not None and row["status"] == state.REVIEW)
+        self.card_caption_button.setEnabled(row is not None and row["status"] == state.NEEDS_METADATA)
         names = [r["filename"] for r in self._visible]
         index = names.index(self._selected) if self._selected in names else -1
         self.prev_button.setEnabled(index > 0)
@@ -686,7 +695,28 @@ class DescriptionPage(TaskPage):
 
     # ---- long operations ----------------------------------------------------------------------
 
-    def _run_caption(self) -> None:
+    def _make_model_combo(self) -> QComboBox:
+        """A model picker; the one in the file list and the one in the card always show the same model."""
+        combo = make_combo()
+        for model_id, note in caption.MODELS:
+            combo.addItem(model_id, model_id)
+            combo.setItemData(combo.count() - 1, f"{model_id} — {note}", Qt.ItemDataRole.ToolTipRole)
+        combo.setCurrentIndex(max(combo.findData(self.ctx.prefs.model), 0))
+        combo.currentIndexChanged.connect(lambda index, source=combo: self._model_changed(source, index))
+        return combo
+
+    def _model_changed(self, source: QComboBox, index: int) -> None:
+        for combo in (self.model, getattr(self, "card_model", None)):
+            if combo is not None and combo is not source and combo.currentIndex() != index:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+
+    def _marked_names(self) -> list[str]:
+        return [row["filename"] for row in self._visible if row["filename"] in self._marked]
+
+    def _run_caption(self, names: list[str] | None = None) -> None:
+        """Caption `names`; without them the marked files, and with nothing marked every new file."""
         if caption.find_claude() is None:
             QMessageBox.warning(
                 self,
@@ -698,6 +728,7 @@ class DescriptionPage(TaskPage):
         model = str(self.model.currentData())
         self.ctx.prefs.set_text("model", model)
         batch_size = self.ctx.prefs.batch_size
+        targets = names if names is not None else self._marked_names() or None
 
         def work(conn, progress, should_stop):
             return services.caption_files(
@@ -706,6 +737,7 @@ class DescriptionPage(TaskPage):
                 limit=services.DEFAULT_CAPTION_LIMIT,
                 per_call=services.DEFAULT_IMAGES_PER_CALL,
                 batch_size=batch_size,
+                names=targets,
                 on_progress=progress,
                 should_stop=should_stop,
             )
@@ -716,7 +748,7 @@ class DescriptionPage(TaskPage):
         if not isinstance(report, services.CaptionReport):
             return
         if report.total == 0:
-            self.write("Нечего подписывать: нет файлов, ожидающих метаданные.")
+            self.write("Нечего подписывать: среди выбранных нет файлов, ожидающих метаданные.")
             self.status.setText("Нечего подписывать")
             return
         self.write(
