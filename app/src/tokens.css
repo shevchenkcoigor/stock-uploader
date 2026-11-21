@@ -1,0 +1,92 @@
+/* Adobe Stock Uploader — generated from tokens.json */
+:root, [data-theme="light"] {
+  --window: #f3f4f6; /* Фон окна приложения и боковой навигации. */
+  --surface: #ffffff; /* Панели, карточки, поля ввода, строки списка файлов. */
+  --surface-sunken: #eceef2; /* Подложка под превью картинок, фон чипов и неактивных зон. */
+  --border: #d0d4dc; /* Тонкие разделители между панелями и строками списка. Не для границ полей ввода. */
+  --border-strong: #8a92a2; /* Границы кнопок, полей ввода и выпадающих списков (контраст 3:1 к панели). */
+  --ink: #1f2430; /* Основной текст на window, surface и accent-soft. */
+  --ink-muted: #5a6272; /* Подписи, размеры файлов, подсказки. Контраст 4.5:1 на window, surface и accent-soft. */
+  --accent: #2563eb; /* Главная кнопка, выбранная страница в навигации, фокус-рамка, статус «Описан». */
+  --accent-ink: #ffffff; /* Текст и иконки на accent. */
+  --accent-soft: #dbe7ff; /* Фон выбранной строки списка и текущей страницы пагинации. Текст на нём: ink. */
+  --success: #15803d; /* Точка статуса «Загружен», успешные сообщения. */
+  --warning: #b45309; /* Точка статуса «Проверить»: Claude пометил картинку как рискованную по правилам Adobe. */
+  --danger: #b91c1c; /* Точка статуса «Ошибка» (не прошла проверку JPEG, ошибка SFTP). Всегда рядом с текстом. */
+}
+[data-theme="dark"] {
+  --window: #1e2025;
+  --surface: #272a31;
+  --surface-sunken: #181a1f;
+  --border: #3a3e48;
+  --border-strong: #7a8397;
+  --ink: #e8eaf0;
+  --ink-muted: #b1b7c4;
+  --accent: #6ea0ff;
+  --accent-ink: #0b1220;
+  --accent-soft: #2d3f73;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+}
+:root {
+  --space-1: 4px; /* Зазор между иконкой и текстом, внутри чипа. */
+  --space-2: 8px; /* Зазор между кнопками, внутренний отступ поля, между чипами ключевых слов. */
+  --space-3: 12px; /* Отступ строки списка, горизонтальный padding кнопки. */
+  --space-4: 16px; /* Внутренний отступ панели, зазор между полями формы. */
+  --space-6: 24px; /* Зазор между крупными панелями окна. */
+  --radius-sm: 4px; /* Поля ввода, превью картинок. */
+  --radius-md: 6px; /* Кнопки, панели. */
+  --radius-lg: 10px; /* Крупные карточки и диалоги. */
+  --radius-pill: 999px; /* Чипы статуса и ключевых слов. */
+  --font-sans: system-ui, "Segoe UI", "SF Pro Text", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --text-title: 600 20px/28px var(--font-sans); /* Заголовок страницы («Описание», «Загрузка»). */
+  --text-heading: 600 15px/22px var(--font-sans); /* Заголовки панелей: «Файлы», «Метаданные». */
+  --text-body: 400 13px/20px var(--font-sans); /* Основной текст, поля, кнопки. Плотность настольного приложения. */
+  --text-label: 600 12px/16px var(--font-sans); /* Подписи над полями формы. */
+  --text-caption: 400 12px/16px var(--font-sans); /* Размер и разрешение файла, строка состояния. */
+  --text-path: 400 12px/18px var(--font-mono); /* Имена файлов, пути и строки журнала. */
+}
+.title {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.heading {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.caption {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  letter-spacing: 0;
+}

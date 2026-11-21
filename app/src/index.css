@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Design tokens (tokens.css) exposed as Tailwind utilities: bg-surface, text-ink-muted, ... */
+@theme inline {
+  --color-window: var(--window);
+  --color-surface: var(--surface);
+  --color-sunken: var(--surface-sunken);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-window font-sans text-ink antialiased select-none;
+}
