@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use super::metadata_csv::{check_items, Item};
+use super::metadata_csv::{check_items, missing_category_problems, Item};
 use super::state::{self, INVALID, UPLOADED};
 use crate::error::AppResult;
 
@@ -76,7 +76,8 @@ fn row_has_problem(row: &CsvRow, ai_label: &str) -> bool {
         keywords: row.keywords.clone(),
         category: row.category.clone(),
     };
-    !check_items(&[item], &HashSet::from([row.filename.clone()]), ai_label).is_empty()
+    !check_items(std::slice::from_ref(&item), &HashSet::from([row.filename.clone()]), ai_label).is_empty()
+        || !missing_category_problems(&[item]).is_empty()
 }
 
 /// Files of a batch that are not uploaded yet, by status; empty when the whole batch is on SFTP.

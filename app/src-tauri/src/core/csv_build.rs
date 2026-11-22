@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use super::csv_batches::batch_waiting;
-use super::metadata_csv::{check_items, validate_csv_file, write_adobe_csv};
+use super::metadata_csv::{check_items, missing_category_problems, validate_csv_file, write_adobe_csv};
 use super::{py_repr, state};
 use crate::error::{AppError, AppResult};
 
@@ -101,6 +101,7 @@ pub fn build_csv(conn: &Connection, batch: i64, csv_dir: &Path, ai_label: &str) 
     write_adobe_csv(&items, &target).map_err(AppError::Check)?;
     let names: HashSet<String> = items.iter().map(|item| item.filename.clone()).collect();
     let mut problems = check_items(&items, &names, ai_label);
+    problems.extend(missing_category_problems(&items));
     problems.extend(validate_csv_file(&target, &names));
     let shown = target.to_string_lossy().into_owned();
     if !problems.is_empty() {
@@ -192,9 +193,22 @@ mod tests {
         let (dir, conn) = setup();
         assert_eq!(build_csv(&conn, 9, dir.path(), "").unwrap().rows, 0);
         conn.execute("UPDATE files SET title = '' WHERE filename = 'a.jpg'", []).unwrap();
+        conn.execute("UPDATE files SET keywords = '[]' WHERE filename = 'b.jpg'", []).unwrap();
         let report = build_csv(&conn, 1, dir.path(), "Generative AI").unwrap();
-        assert!(report.problems.iter().any(|problem| problem.contains("empty title")), "{:?}", report.problems);
+        assert!(report.problems.contains(&"a.jpg: empty title".to_string()), "{:?}", report.problems);
+        assert!(report.problems.contains(&"b.jpg: no keywords".to_string()), "{:?}", report.problems);
         assert!(state::recorded_csv_path(&conn, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_row_without_a_category_stops_the_csv() {
+        let (dir, conn) = setup();
+        conn.execute("UPDATE files SET category = '' WHERE filename = 'b.jpg'", []).unwrap();
+        let report = build_csv(&conn, 1, dir.path(), "Generative AI").unwrap();
+        assert_eq!(report.problems, vec!["b.jpg: no category".to_string()]);
+        assert!(state::recorded_csv_path(&conn, 1).unwrap().is_none());
+        let entries_problem = crate::core::csv_batches::csv_entries(&conn, "Generative AI").unwrap();
+        assert!(entries_problem.is_empty(), "no CSV is recorded, so there is no entry yet");
     }
 
     #[test]

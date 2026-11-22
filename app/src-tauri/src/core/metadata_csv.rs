@@ -176,6 +176,16 @@ pub fn check_items(items: &[Item], existing_files: &HashSet<String>, ai_label: &
     problems
 }
 
+/// Rows without a category. `check_items` lets it stay empty (Claude may find none, our own CSV may omit
+/// it), but a CSV that goes to the portal must have one.
+pub fn missing_category_problems(items: &[Item]) -> Vec<String> {
+    items
+        .iter()
+        .filter(|item| item.category.is_empty())
+        .map(|item| format!("{}: no category", item.filename))
+        .collect()
+}
+
 /// UTF-8 size of one CSV row (csv.writer, minimal quoting, `\r\n`), to keep batches under the size limit.
 fn estimate_row_bytes(item: &Item) -> usize {
     let keywords = item.keywords.join(", ");
