@@ -18,7 +18,7 @@ cd app/src-tauri && cargo test --lib core::export     # Rust tests matching a pa
 cd app/src-tauri && cargo clippy   # Rust lint
 ```
 
-Pre-commit (`pipx install pre-commit && pre-commit install` once) runs oxlint, vitest and `cargo test` on every commit; a failing hook blocks the commit.
+There is no commit hook (there is no Python to host pre-commit); CI runs lint, vitest, build and `cargo test` on every pull request, so run them locally only when you want faster feedback.
 
 ## Architecture
 

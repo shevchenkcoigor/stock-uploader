@@ -178,17 +178,7 @@ cd app && npm run lint && npm test && npm run build   # фронтенд: лин
 cd app/src-tauri && cargo test                        # ядро на Rust
 ```
 
-### Pre-commit
-
-При каждом `git commit` запускаются `oxlint`, `vitest` и `cargo test`; если что-то не проходит, коммит
-блокируется. Один раз после клонирования:
-
-```bash
-pipx install pre-commit    # или pip install pre-commit
-pre-commit install
-```
-
-Вручную по всем файлам: `pre-commit run --all-files`.
+Коммит-хука нет: те же проверки запускает CI на каждом pull request.
 
 ## Что не проверено или не доделано
 
