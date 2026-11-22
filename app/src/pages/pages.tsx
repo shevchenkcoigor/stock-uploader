@@ -22,8 +22,8 @@ export interface PageDef {
 export const PAGES: PageDef[] = [
   { id: 'scan', title: '1. Скан', component: ScanPage },
   { id: 'describe', title: '2. Описание', component: DescribePage },
-  { id: 'upload', title: '3. Загрузка', component: UploadPage },
-  { id: 'csv', title: '4. CSV и отправка', component: CsvPage },
+  { id: 'csv', title: '3. CSV и отправка', component: CsvPage },
+  { id: 'upload', title: '4. Загрузка', component: UploadPage },
   { id: 'log', title: 'Журнал', component: LogPage },
   { id: 'settings', title: 'Настройки', component: SettingsPage, bottom: true },
 ]
