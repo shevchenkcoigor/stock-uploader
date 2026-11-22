@@ -88,23 +88,27 @@ export function Button({
 
 interface SegmentedProps<T extends string> {
   value: T
-  options: ReadonlyArray<{ value: T; label: string }>
+  /** `label` may be an icon: then give `title`, it names the segment for the mouse and for screen readers. */
+  options: ReadonlyArray<{ value: T; label: ReactNode; title?: string }>
   onChange: (value: T) => void
 }
 
+/** A row of mutually exclusive choices in one frame; the chosen one is tinted. */
 export function Segmented<T extends string>({ value, options, onChange }: SegmentedProps<T>) {
   return (
-    <div role="radiogroup" className="inline-flex rounded-md border border-line-strong bg-sunken p-0.5">
-      {options.map((option) => (
+    <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-line-strong bg-surface">
+      {options.map((option, index) => (
         <button
           key={option.value}
           type="button"
           role="radio"
           aria-checked={option.value === value}
+          aria-label={option.title}
+          title={option.title}
           onClick={() => onChange(option.value)}
-          className={`h-8 rounded px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-            option.value === value ? 'bg-accent text-accent-ink' : 'text-ink hover:bg-surface'
-          }`}
+          className={`flex h-9 min-w-10 items-center justify-center px-3 text-sm text-ink outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-accent ${
+            index > 0 ? 'border-l border-line-strong' : ''
+          } ${option.value === value ? 'bg-accent-soft' : 'hover:bg-sunken'}`}
         >
           {option.label}
         </button>

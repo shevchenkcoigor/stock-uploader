@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Pager } from '../components/Pager'
 import { Segmented } from '../components/form'
+import { ListIcon, TilesIcon } from '../components/icons'
 import { filesApi } from '../lib/api'
 import { EDITABLE_STATUSES, FILTER_ALL, RECAPTIONABLE, modelTitle } from '../lib/describe'
 import { viewOf } from '../lib/status'
@@ -12,9 +13,9 @@ import { useCaption } from './describe/useCaption'
 import { THUMB_SIDES, useDescribe, type ThumbSize, type ViewMode } from './describe/useDescribe'
 import type { PageProps } from './pages'
 
-const VIEWS: ReadonlyArray<{ value: ViewMode; label: string }> = [
-  { value: 'list', label: 'Список' },
-  { value: 'tiles', label: 'Плитки' },
+const VIEWS: ReadonlyArray<{ value: ViewMode; label: ReactNode; title: string }> = [
+  { value: 'list', label: <ListIcon />, title: 'Список' },
+  { value: 'tiles', label: <TilesIcon />, title: 'Плитки' },
 ]
 const SIZES: ReadonlyArray<{ value: ThumbSize; label: string }> = [
   { value: 'S', label: 'S' },
