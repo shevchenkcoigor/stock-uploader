@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Pager } from '../components/Pager'
 import { Segmented } from '../components/form'
 import { filesApi } from '../lib/api'
@@ -37,6 +38,34 @@ export function DescribePage({ active }: PageProps) {
     const described = targets?.filter((row) => row.status !== 'needs_metadata').length ?? 0
     void caption.start(targets ? targets.map((row) => row.filename) : null, targets !== null, described)
   }
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // Arrow keys move the open file: up/down in the table, all four in tiles (a row of tiles is one step up/down).
+  const { step, selected: openName } = state
+  const view = state.view
+  useEffect(() => {
+    if (!active) return
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const typing = target?.closest('input, select, textarea, [contenteditable="true"]')
+      if (typing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      const tiles = view === 'tiles'
+      const items = tiles ? [...(listRef.current?.querySelectorAll('li') ?? [])] : []
+      const perRow = Math.max(1, items.filter((item) => item.offsetTop === items[0]?.offsetTop).length)
+      const delta = { ArrowDown: tiles ? perRow : 1, ArrowUp: tiles ? -perRow : -1, ArrowRight: tiles ? 1 : 0, ArrowLeft: tiles ? -1 : 0 }[event.key]
+      if (!delta) return
+      event.preventDefault()
+      step(delta)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, view, step])
+
+  // The moved-to file stays in sight.
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-selected="true"], [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [openName, state.page, view])
+
   const open = (path: string) => void filesApi.open(path).catch(() => undefined)
 
   return (
@@ -112,7 +141,7 @@ export function DescribePage({ active }: PageProps) {
           onApply={(tag, category, status) => void actions.bulk(tag, category, status)}
         />
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
           {state.view === 'list' ? (
             <FilesTable
               rows={pageRows}
