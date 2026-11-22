@@ -686,7 +686,7 @@ pub fn record_error(conn: &Connection, path: &Path, error: &str) -> AppResult<()
     Ok(())
 }
 
-/// A batch that still has pending files, with how many.
+/// A batch the upload page lists, with how many of its files are waiting or already on the server.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingBatch {
@@ -696,13 +696,14 @@ pub struct PendingBatch {
     pub n: i64,
 }
 
-/// Batches that still have pending files, oldest first, with their pending counts.
-pub fn pending_batches(conn: &Connection) -> AppResult<Vec<PendingBatch>> {
+/// Batches with files waiting for upload or uploaded but not yet submitted, oldest first: an uploaded
+/// file stays in its batch's queue until the batch is sent to Adobe.
+pub fn upload_batches(conn: &Connection) -> AppResult<Vec<PendingBatch>> {
     let mut stmt = conn.prepare(
         "SELECT b.id, b.folder, b.part, COUNT(*) FROM files f JOIN batches b ON b.id = f.batch_id
-         WHERE f.status = ? GROUP BY b.id ORDER BY b.id",
+         WHERE f.status IN (?, ?) GROUP BY b.id ORDER BY b.id",
     )?;
-    let rows = stmt.query_map([PENDING], |row| {
+    let rows = stmt.query_map([PENDING, UPLOADED], |row| {
         Ok(PendingBatch { batch_id: row.get(0)?, folder: row.get(1)?, part: row.get(2)?, n: row.get(3)? })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)

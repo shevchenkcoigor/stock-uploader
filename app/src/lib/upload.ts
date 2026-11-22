@@ -34,7 +34,7 @@ export const STATE_VIEWS: Record<QueueState, { label: string; dot: string; rank:
   failed: { label: 'Ошибка', dot: 'bg-danger', rank: 0 },
   uploading: { label: 'Загружается', dot: 'bg-accent', rank: 1 },
   queued: { label: 'В очереди', dot: 'bg-ink-muted', rank: 2 },
-  done: { label: 'Загружен', dot: 'bg-success', rank: 3 },
+  done: { label: 'На SFTP', dot: 'bg-success', rank: 3 },
 }
 
 const DONE_STATUSES = ['uploaded', 'submitted']

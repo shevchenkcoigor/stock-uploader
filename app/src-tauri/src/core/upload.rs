@@ -204,7 +204,12 @@ mod tests {
     #[test]
     fn the_queue_queries_list_batches_counts_and_files() {
         let (_dir, conn) = setup(2);
-        assert_eq!(state::pending_batches(&conn).unwrap()[0].n, 2);
+        assert_eq!(state::upload_batches(&conn).unwrap()[0].n, 2);
+        // an uploaded file keeps its batch in the list; a submitted one lets it go
+        conn.execute("UPDATE files SET status = 'uploaded'", []).unwrap();
+        assert_eq!(state::upload_batches(&conn).unwrap()[0].n, 2);
+        conn.execute("UPDATE files SET status = 'submitted'", []).unwrap();
+        assert!(state::upload_batches(&conn).unwrap().is_empty());
         assert_eq!(state::batch_status_counts(&conn).unwrap(), vec![(1, "pending".to_string(), 2)]);
         assert_eq!(state::batch_files(&conn, 1).unwrap()[1].filename, "p1.jpg");
     }

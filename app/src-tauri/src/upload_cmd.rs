@@ -46,7 +46,7 @@ pub async fn upload_overview() -> AppResult<UploadOverview> {
             .into_iter()
             .map(|(batch_id, status, n)| StatusCount { batch_id, status, n })
             .collect();
-        Ok(UploadOverview { batches: state::pending_batches(&conn)?, counts })
+        Ok(UploadOverview { batches: state::upload_batches(&conn)?, counts })
     })
     .await
     .map_err(|error| AppError::Check(error.to_string()))?

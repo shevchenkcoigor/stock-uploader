@@ -67,12 +67,12 @@ export function UploadPage({ active, navigate }: PageProps) {
       .overview()
       .then((fresh) => {
         setOverview(fresh)
-        // the last pending batch by default; a batch that is gone is replaced
-        setBatch((chosen) =>
-          chosen !== null && fresh.batches.some((item) => item.batchId === chosen)
-            ? chosen
-            : (fresh.batches.at(-1)?.batchId ?? null),
-        )
+        // the last batch with files still waiting by default (else the last one); a batch that is gone is replaced
+        setBatch((chosen) => {
+          if (chosen !== null && fresh.batches.some((item) => item.batchId === chosen)) return chosen
+          const waiting = fresh.batches.filter((item) => fresh.counts.some((c) => c.batchId === item.batchId && c.status === 'pending'))
+          return (waiting.at(-1) ?? fresh.batches.at(-1))?.batchId ?? null
+        })
       })
       .catch((reason) => say(String(reason), true))
   }, [say])
@@ -159,7 +159,7 @@ export function UploadPage({ active, navigate }: PageProps) {
           }}
           className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
         >
-          {overview.batches.length === 0 && <option value="">Нет файлов, ожидающих загрузки</option>}
+          {overview.batches.length === 0 && <option value="">Нет файлов для загрузки</option>}
           {overview.batches.map((item) => (
             <option key={item.batchId} value={item.batchId}>
               {batchLabel(item, overview)}
