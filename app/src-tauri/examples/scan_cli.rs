@@ -10,15 +10,14 @@ fn main() {
     backup::protected(db, || {
         let mut conn = state::open_db(db)?;
         let images = scan::find_images(&folder, true);
-        let report = scan::scan(&mut conn, &folder, &images, 1000, &mut |_, _, _| {}, &|| false)?;
+        let report = scan::scan(&mut conn, &folder, &images, &mut |_, _, _| {}, &|| false)?;
         println!(
-            "found {} added {} need_metadata {} unchanged {} invalid {} batches {}",
+            "found {} added {} need_metadata {} unchanged {} invalid {}",
             report.found,
             report.result.added,
             report.result.needs_metadata,
             report.result.unchanged,
-            report.result.invalid,
-            report.result.batches_created
+            report.result.invalid
         );
         Ok(())
     })

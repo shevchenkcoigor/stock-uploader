@@ -41,7 +41,6 @@ export interface Settings {
   sftpPort: number
   sftpUser: string
   aiTitleLabel: string
-  batchSize: number
   captionLimit: number
   captionWorkers: number
   captionPerCall: number
@@ -97,7 +96,6 @@ export interface CaptionReport {
   captioned: number
   flagged: string[]
   errors: string[]
-  newBatches: number
   stopped: boolean
 }
 
@@ -109,18 +107,6 @@ export const captionApi = {
   cancel: () => invoke<void>('caption_cancel'),
 }
 
-export interface PendingBatch {
-  batchId: number
-  folder: string
-  part: number
-  n: number
-}
-
-export interface UploadOverview {
-  batches: PendingBatch[]
-  counts: Array<{ batchId: number; status: string; n: number }>
-}
-
 export interface QueueFile {
   path: string
   filename: string
@@ -130,12 +116,11 @@ export interface QueueFile {
 }
 
 export interface UploadReport {
-  batch: number
   total: number
   uploaded: number
   failed: string[]
   error: string | null
-  /** Why nothing was sent: the batch has no up-to-date prepared copies yet. */
+  /** Why nothing was sent: the files have no up-to-date prepared copies yet. */
   blocked: string | null
   stopped: boolean
 }
@@ -149,9 +134,8 @@ export interface UploadProgress {
   size: number
 }
 
-/** What preparing a batch (copies with the title and keywords embedded) did. */
+/** What preparing the pending files (copies with the title and keywords embedded) did. */
 export interface PrepareReport {
-  batch: number
   total: number
   /** Copies written now. */
   prepared: number
@@ -171,18 +155,15 @@ export interface PrepareProgress {
 }
 
 export const uploadApi = {
-  overview: () => invoke<UploadOverview>('upload_overview'),
-  queue: (batch: number) => invoke<QueueFile[]>('upload_queue', { batch }),
-  prepare: (batch: number) => invoke<PrepareReport>('upload_prepare', { batch }),
-  start: (batch: number) => invoke<UploadReport>('upload_start', { batch }),
+  queue: () => invoke<QueueFile[]>('upload_queue'),
+  prepare: () => invoke<PrepareReport>('upload_prepare'),
+  start: () => invoke<UploadReport>('upload_start'),
   pause: () => invoke<void>('upload_pause'),
-  markSubmitted: (batch: number) => invoke<SubmittedReport>('upload_mark_submitted', { batch }),
+  markSubmitted: () => invoke<SubmittedReport>('upload_mark_submitted'),
 }
 
 export interface SubmittedReport {
   count: number
-  warnings: string[]
-  waiting: Array<[string, number]>
 }
 
 export const scanApi = {
@@ -217,13 +198,11 @@ export interface FileRow {
 
 export interface ApproveReport {
   count: number
-  newBatches: number
 }
 
 export interface BulkResult {
   edited: number | null
   moved: number | null
-  newBatches: number
 }
 
 export const describeApi = {

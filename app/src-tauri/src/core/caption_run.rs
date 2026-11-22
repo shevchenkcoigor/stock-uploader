@@ -1,5 +1,5 @@
 //! Captioning a set of files and storing the result: groups of images go
-//! to `claude` in parallel windows, results are checked and written to the database, and new files are batched.
+//! to `claude` in parallel windows, results are checked and written to the database.
 //! Shared by the commands; it prints nothing and reports progress through a callback.
 
 use std::collections::HashSet;
@@ -22,7 +22,6 @@ pub struct CaptionReport {
     /// "name: reason" for files held back for review.
     pub flagged: Vec<String>,
     pub errors: Vec<String>,
-    pub new_batches: usize,
     pub stopped: bool,
 }
 
@@ -32,7 +31,6 @@ pub struct CaptionOptions<'a> {
     pub limit: usize,
     pub per_call: usize,
     pub workers: usize,
-    pub batch_size: usize,
     pub names: Option<&'a [String]>,
     pub redo: bool,
     pub ai_label: &'a str,
@@ -95,8 +93,7 @@ fn store_results(
     Ok(stored)
 }
 
-/// Generates titles and keywords for files that have none (only `options.names` if given), then batches them.
-/// With `redo` the described files among `names` are captioned again and their text is replaced.
+/// Generates titles and keywords for files that have none (only `options.names` if given)./// With `redo` the described files among `names` are captioned again and their text is replaced.
 pub fn caption_files(
     conn: &Connection,
     options: &CaptionOptions,
@@ -148,19 +145,17 @@ pub fn caption_files(
         }
     }
 
-    report.new_batches = state::assign_batches(conn, Some(options.batch_size))?;
     let level = if report.errors.is_empty() { "info" } else { "error" };
     state::log_event(
         conn,
         "caption",
         &format!(
-            "model {}: captioned {} of {}, flagged {}, errors {}, new batches {}{}",
+            "model {}: captioned {} of {}, flagged {}, errors {}{}",
             options.model,
             report.captioned,
             todo.len(),
             report.flagged.len(),
             report.errors.len(),
-            report.new_batches,
             if report.stopped { ", cancelled" } else { "" }
         ),
         level,
@@ -203,7 +198,6 @@ mod tests {
             limit: 100,
             per_call: 2,
             workers: 2,
-            batch_size: 1000,
             names: None,
             redo: false,
             ai_label: label,
@@ -218,7 +212,7 @@ mod tests {
 
         let report = caption_files(&conn, &options(&claude, "Generative AI"), &mut |d, t, _| steps.push((d, t)), &|| false).unwrap();
 
-        assert_eq!((report.total, report.captioned, report.flagged.len(), report.new_batches), (2, 1, 1, 1));
+        assert_eq!((report.total, report.captioned, report.flagged.len()), (2, 1, 1));
         assert_eq!(steps, vec![(2, 2)]);
         let row = |name: &str| -> (String, String, Option<String>) {
             conn.query_row("SELECT status, title, error FROM files WHERE filename = ?", [name], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap()

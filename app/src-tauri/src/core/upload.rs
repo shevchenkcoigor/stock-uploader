@@ -1,4 +1,4 @@
-//! Uploading the pending files of a batch: the status is written after
+//! Uploading the pending files: the status is written after
 //! each file, so an interrupted run resumes where it stopped.
 
 use std::collections::HashMap;
@@ -12,13 +12,12 @@ use crate::error::AppResult;
 #[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadReport {
-    pub batch: i64,
     pub total: usize,
     pub uploaded: usize,
     pub failed: Vec<String>,
     /// The whole run could not start or was cut off (DNS, login, ...).
     pub error: Option<String>,
-    /// Why nothing was sent: the batch has no up-to-date copies with embedded metadata yet.
+    /// Why nothing was sent: the files have no up-to-date copies with embedded metadata yet.
     pub blocked: Option<String>,
     pub stopped: bool,
 }
@@ -35,31 +34,30 @@ pub struct UploadProgress {
     pub size: u64,
 }
 
-/// Uploads the pending files of `batch`. `connect` is called only when there is something to send.
-pub fn upload_batch(
+/// Uploads every pending file; uploaded and submitted ones are skipped. `connect` is called only when there is something to send.
+pub fn upload_pending(
     conn: &Connection,
-    batch: i64,
     connect: impl FnOnce() -> Result<Box<dyn Uploader>, String>,
     on_progress: &mut dyn FnMut(UploadProgress),
     should_stop: &dyn Fn() -> bool,
 ) -> AppResult<UploadReport> {
-    let files = state::pending_files(conn, batch)?;
+    let files = state::pending_files(conn)?;
     let total = files.len();
-    let mut report = UploadReport { batch, total, ..UploadReport::default() };
+    let mut report = UploadReport { total, ..UploadReport::default() };
     if files.is_empty() {
         return Ok(report);
     }
-    let readiness = export_readiness(conn, batch)?;
+    let readiness = export_readiness(conn)?;
     if readiness != ExportReadiness::Ready {
-        let reason = readiness_text(batch, readiness);
-        state::log_event(conn, "upload", &format!("batch {batch}: refused, {reason}"), "warning", None)?;
+        let reason = readiness_text(readiness);
+        state::log_event(conn, "upload", &format!("refused, {reason}"), "warning", None)?;
         report.blocked = Some(reason);
         return Ok(report);
     }
-    state::log_event(conn, "upload", &format!("batch {batch}: started, {total} files"), "info", None)?;
+    state::log_event(conn, "upload", &format!("started, {total} files"), "info", None)?;
     let mut uploader = match connect() {
         Ok(uploader) => uploader,
-        Err(error) => return fail_run(conn, report, batch, &error),
+        Err(error) => return fail_run(conn, report, &error),
     };
     let mut errors: HashMap<String, String> = HashMap::new();
     let mut done = 0;
@@ -105,7 +103,7 @@ pub fn upload_batch(
         conn,
         "upload",
         &format!(
-            "batch {batch}: {}, {} uploaded, {} failed",
+            "{}, {} uploaded, {} failed",
             if report.stopped { "cancelled" } else { "finished" },
             report.uploaded,
             report.failed.len()
@@ -117,8 +115,8 @@ pub fn upload_batch(
 }
 
 /// DNS, network or login problems end the whole run; the files stay pending.
-fn fail_run(conn: &Connection, mut report: UploadReport, batch: i64, error: &str) -> AppResult<UploadReport> {
-    let message = format!("cannot upload batch {batch}: {error}");
+fn fail_run(conn: &Connection, mut report: UploadReport, error: &str) -> AppResult<UploadReport> {
+    let message = format!("cannot upload: {error}");
     state::log_event(conn, "upload", &message, "error", None)?;
     report.error = Some(message);
     Ok(report)
@@ -127,7 +125,7 @@ fn fail_run(conn: &Connection, mut report: UploadReport, batch: i64, error: &str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::export::prepare_batch;
+    use crate::core::export::prepare_pending;
     use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
     use std::path::Path;
 
@@ -151,14 +149,13 @@ mod tests {
     fn setup(count: usize) -> (tempfile::TempDir, Connection) {
         let dir = tempfile::tempdir().unwrap();
         let conn = state::open_db(&dir.path().join("state.db")).unwrap();
-        conn.execute("INSERT INTO batches (folder, part, created_at) VALUES ('/r', 1, 't')", []).unwrap();
         for index in 0..count {
             let path = dir.path().join(format!("p{index}.jpg"));
             let file = std::fs::File::create(&path).unwrap();
             JpegEncoder::new(std::io::BufWriter::new(file)).encode(&vec![index as u8; 16 * 16 * 3], 16, 16, ExtendedColorType::Rgb8).unwrap();
             conn.execute(
-                "INSERT INTO files (path, filename, size, sha256, root, status, batch_id, title, keywords, category, updated_at)
-                 VALUES (?, ?, 5, ?, '/r', 'pending', 1, ?, '[\"k\"]', '1', 't')",
+                "INSERT INTO files (path, filename, size, sha256, root, status, title, keywords, category, updated_at)
+                 VALUES (?, ?, 5, ?, '/r', 'pending', ?, '[\"k\"]', '1', 't')",
                 rusqlite::params![
                     path.to_string_lossy(),
                     format!("p{index}.jpg"),
@@ -168,9 +165,9 @@ mod tests {
             )
             .unwrap();
         }
-        // copies come first: a batch is uploaded only once its pictures carry their metadata
+        // copies come first: files are uploaded only once its pictures carry their metadata
         let report =
-            prepare_batch(&conn, 1, &dir.path().join("export"), "Generative AI", &mut |_, _, _| {}, &|| false).unwrap();
+            prepare_pending(&conn, &dir.path().join("export"), "Generative AI", &mut |_, _, _| {}, &|| false).unwrap();
         assert!(report.problems.is_empty(), "{:?}", report.problems);
         (dir, conn)
     }
@@ -184,7 +181,7 @@ mod tests {
     fn every_file_is_uploaded_and_marked_one_by_one() {
         let (_dir, conn) = setup(3);
         let mut steps = Vec::new();
-        let report = upload_batch(&conn, 1, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |p| steps.push(p.message), &|| false).unwrap();
+        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |p| steps.push(p.message), &|| false).unwrap();
         assert_eq!((report.total, report.uploaded, report.failed.len(), report.stopped), (3, 3, 0, false));
         assert!(statuses(&conn).iter().all(|(status, error)| status == "uploaded" && error.is_none()));
         assert_eq!(steps.last().unwrap(), "uploaded p2.jpg");
@@ -193,7 +190,7 @@ mod tests {
     #[test]
     fn a_failed_file_keeps_its_error_and_stays_pending_while_the_rest_go_on() {
         let (_dir, conn) = setup(3);
-        let report = upload_batch(&conn, 1, || Ok(Box::new(Fake { sent: vec![], fail_on: Some("p1.jpg") })), &mut |_| {}, &|| false).unwrap();
+        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: Some("p1.jpg") })), &mut |_| {}, &|| false).unwrap();
         assert_eq!((report.uploaded, report.failed.clone()), (2, vec!["p1.jpg".to_string()]));
         let rows = statuses(&conn);
         assert_eq!(rows[1], ("pending".to_string(), Some("Permission denied".to_string())));
@@ -201,54 +198,53 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_without_current_copies_is_not_uploaded() {
+    fn files_without_current_copies_is_not_uploaded() {
         let (_dir, conn) = setup(2);
         let never = || -> Result<Box<dyn Uploader>, String> { panic!("must not connect") };
 
         // a title changed after the copies were made: they are stale
         conn.execute("UPDATE files SET title = 'Edited later Generative AI' WHERE filename = 'p0.jpg'", []).unwrap();
-        let stale = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
-        assert_eq!(stale.blocked, Some(readiness_text(1, ExportReadiness::Stale)));
+        let stale = upload_pending(&conn, never, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(stale.blocked, Some(readiness_text(ExportReadiness::Stale)));
         assert_eq!(stale.uploaded, 0);
 
         // no copies at all
         conn.execute("UPDATE files SET embedded_hash = '', export_path = ''", []).unwrap();
-        let missing = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
-        assert_eq!(missing.blocked, Some(readiness_text(1, ExportReadiness::Missing)));
+        let missing = upload_pending(&conn, never, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(missing.blocked, Some(readiness_text(ExportReadiness::Missing)));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
         let last: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
-        assert!(last.starts_with("batch 1: refused, "), "{last}");
+        assert!(last.starts_with("refused, "), "{last}");
     }
 
     #[test]
     fn a_connection_failure_ends_the_run_and_leaves_everything_pending() {
         let (_dir, conn) = setup(2);
-        let report = upload_batch(&conn, 1, || Err("вход не выполнен: bad password".to_string()), &mut |_| {}, &|| false).unwrap();
-        assert_eq!(report.error.as_deref(), Some("cannot upload batch 1: вход не выполнен: bad password"));
+        let report = upload_pending(&conn, || Err("вход не выполнен: bad password".to_string()), &mut |_| {}, &|| false).unwrap();
+        assert_eq!(report.error.as_deref(), Some("cannot upload: вход не выполнен: bad password"));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
     }
 
     #[test]
-    fn stopping_leaves_the_rest_untouched_and_an_empty_batch_never_connects() {
+    fn stopping_leaves_the_rest_untouched_and_an_empty_queue_never_connects() {
         let (_dir, conn) = setup(2);
-        let report = upload_batch(&conn, 1, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| true).unwrap();
+        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| true).unwrap();
         assert!(report.stopped && report.uploaded == 0);
         assert!(statuses(&conn).iter().all(|(status, error)| status == "pending" && error.is_none()));
 
-        let empty = upload_batch(&conn, 99, || panic!("must not connect"), &mut |_| {}, &|| false).unwrap();
+        conn.execute("UPDATE files SET status = 'uploaded'", []).unwrap();
+        let empty = upload_pending(&conn, || panic!("must not connect"), &mut |_| {}, &|| false).unwrap();
         assert_eq!(empty.total, 0);
     }
 
     #[test]
-    fn the_queue_queries_list_batches_counts_and_files() {
-        let (_dir, conn) = setup(2);
-        assert_eq!(state::upload_batches(&conn).unwrap()[0].n, 2);
-        assert_eq!(state::batch_status_counts(&conn).unwrap(), vec![(1, "pending".to_string(), 2)]);
-        assert_eq!(state::batch_files(&conn, 1).unwrap()[1].filename, "p1.jpg");
-        // an uploaded file keeps its batch in the list; a submitted one lets it go
-        conn.execute("UPDATE files SET status = 'uploaded'", []).unwrap();
-        assert_eq!(state::upload_batches(&conn).unwrap()[0].n, 2);
-        conn.execute("UPDATE files SET status = 'submitted'", []).unwrap();
-        assert!(state::upload_batches(&conn).unwrap().is_empty());
+    fn the_queue_lists_every_uploadable_file_and_uploaded_ones_are_not_sent_again() {
+        let (_dir, conn) = setup(3);
+        conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'p0.jpg'", []).unwrap();
+        conn.execute("UPDATE files SET status = 'submitted' WHERE filename = 'p1.jpg'", []).unwrap();
+        let queue = state::queue_files(&conn).unwrap();
+        assert_eq!(queue.iter().map(|file| file.status.as_str()).collect::<Vec<_>>(), ["uploaded", "submitted", "pending"]);
+        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| false).unwrap();
+        assert_eq!((report.total, report.uploaded), (1, 1));
     }
 }

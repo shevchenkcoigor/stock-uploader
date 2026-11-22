@@ -12,12 +12,12 @@ use rusqlite::Connection;
 use super::caption::tests::fake_claude;
 use super::caption_run::{caption_files, CaptionOptions};
 use super::embed::{read_embedded, verify_embedded, EmbedMeta};
-use super::export::prepare_batch;
+use super::export::prepare_pending;
 use super::scan::{find_images, scan};
 use super::sftp::Uploader;
 use super::state;
 use super::submit::mark_submitted;
-use super::upload::upload_batch;
+use super::upload::upload_pending;
 
 const SIDE: u32 = 2100; // 4.4 MP, above Adobe's 4 MP minimum
 const AI_LABEL: &str = "Generative AI";
@@ -88,7 +88,7 @@ fn scanned_and_captioned() -> Env {
 
     let mut conn = state::open_db(&dir.path().join("state.db")).unwrap();
     let images = find_images(&photos, true);
-    let scanned = scan(&mut conn, &photos, &images, 1000, &mut |_, _, _| {}, &|| false).unwrap();
+    let scanned = scan(&mut conn, &photos, &images, &mut |_, _, _| {}, &|| false).unwrap();
     assert_eq!((scanned.found, scanned.result.needs_metadata, scanned.result.invalid), (4, 3, 1));
     assert_eq!(statuses(&conn, "needs_metadata"), 3);
 
@@ -99,7 +99,6 @@ fn scanned_and_captioned() -> Env {
         limit: 100,
         per_call: 3,
         workers: 1,
-        batch_size: 1000,
         names: None,
         redo: false,
         ai_label: AI_LABEL,
@@ -119,20 +118,18 @@ fn a_folder_goes_from_scan_to_submitted_through_a_flaky_sftp_server() {
     let Env { _dir, conn, export_dir, sources } = scanned_and_captioned();
     let server = Arc::new(Mutex::new(Server::default()));
 
-    // Review: the flagged picture is held back until a person approves it, then it joins a batch.
+    // Review: the flagged picture is held back until a person approves it, then it joins the queue.
     assert_eq!((statuses(&conn, "pending"), statuses(&conn, "review")), (2, 1));
     assert_eq!(state::approve_reviewed(&conn, None).unwrap(), 1);
-    state::assign_batches(&conn, Some(1000)).unwrap();
     assert_eq!(statuses(&conn, "pending"), 3);
-    let batch = state::upload_batches(&conn).unwrap()[0].batch_id;
 
     // Nothing may be sent before the copies exist.
-    let early = upload_batch(&conn, batch, connect_to(&server), &mut |_| {}, &|| false).unwrap();
+    let early = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert!(early.blocked.is_some() && early.uploaded == 0);
     assert!(server.lock().unwrap().puts.is_empty());
 
     // Prepare: copies carry the metadata, originals stay untouched.
-    let prepared = prepare_batch(&conn, batch, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
+    let prepared = prepare_pending(&conn, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
     assert_eq!((prepared.prepared, prepared.problems.len(), prepared.failed.len()), (3, 0, 0));
     for source in &sources {
         let original = read_embedded(source).unwrap();
@@ -141,17 +138,13 @@ fn a_folder_goes_from_scan_to_submitted_through_a_flaky_sftp_server() {
 
     // First run: the link drops on the second file; the first stays uploaded, the others wait.
     server.lock().unwrap().drop_on_put = Some(2);
-    let first = upload_batch(&conn, batch, connect_to(&server), &mut |_| {}, &|| false).unwrap();
+    let first = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert_eq!((first.total, first.uploaded, first.failed.clone()), (3, 2, vec!["shot2.jpg".to_string()]));
     assert_eq!((statuses(&conn, "uploaded"), statuses(&conn, "pending")), (2, 1));
 
-    // The portal step cannot be confirmed while a file is still missing on the server.
-    let refused = mark_submitted(&conn, batch).unwrap();
-    assert_eq!((refused.count, refused.waiting), (0, vec![("pending".to_string(), 1)]));
-
     // Retry: only the missing file is sent.
     server.lock().unwrap().drop_on_put = None;
-    let second = upload_batch(&conn, batch, connect_to(&server), &mut |_| {}, &|| false).unwrap();
+    let second = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert_eq!((second.total, second.uploaded, second.failed.len()), (1, 1, 0));
     assert_eq!(server.lock().unwrap().puts, ["shot1.jpg", "shot2.jpg", "shot3.jpg", "shot2.jpg"]);
 
@@ -164,7 +157,7 @@ fn a_folder_goes_from_scan_to_submitted_through_a_flaky_sftp_server() {
         ("shot3.jpg", "Old stone bridge over a river Generative AI", vec!["bridge", "river", "stone"]),
     ];
     for (name, title, keywords) in expected {
-        let copy = export_dir.join(batch.to_string()).join(name);
+        let copy = export_dir.join(name);
         assert_eq!(remote.files[name], std::fs::read(&copy).unwrap(), "{name} differs from its copy");
         let downloaded = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(downloaded.path(), &remote.files[name]).unwrap();
@@ -177,10 +170,10 @@ fn a_folder_goes_from_scan_to_submitted_through_a_flaky_sftp_server() {
     }
     drop(remote);
 
-    // Done in the portal: the batch is submitted and leaves the upload queue; the invalid file never travelled.
-    let submitted = mark_submitted(&conn, batch).unwrap();
+    // Done in the portal: everything uploaded is submitted; the invalid file never travelled.
+    let submitted = mark_submitted(&conn).unwrap();
     assert_eq!(submitted.count, 3);
-    assert!(state::upload_batches(&conn).unwrap().is_empty());
+    assert_eq!(state::queue_files(&conn).unwrap().iter().filter(|file| file.status == "submitted").count(), 3);
     assert!(!server.lock().unwrap().files.contains_key("tiny.jpg"));
     let log: Vec<String> = conn
         .prepare("SELECT message FROM events ORDER BY id")
@@ -189,7 +182,6 @@ fn a_folder_goes_from_scan_to_submitted_through_a_flaky_sftp_server() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    assert!(log.iter().any(|line| line.contains("refused")), "{log:?}");
     assert!(log.iter().any(|line| line.contains("3 files marked submitted")), "{log:?}");
 }
 
@@ -198,24 +190,22 @@ fn a_title_edited_after_preparing_blocks_the_upload_until_the_copy_is_refreshed(
     let Env { _dir, conn, export_dir, .. } = scanned_and_captioned();
     let server = Arc::new(Mutex::new(Server::default()));
     state::approve_reviewed(&conn, None).unwrap();
-    state::assign_batches(&conn, Some(1000)).unwrap();
-    let batch = state::upload_batches(&conn).unwrap()[0].batch_id;
-    prepare_batch(&conn, batch, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
+    prepare_pending(&conn, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
 
     let keywords = ["fox".to_string(), "snow".to_string()];
     state::update_metadata(&conn, "shot1.jpg", "Arctic fox resting on a snowy hill Generative AI", &keywords, "1").unwrap();
-    let stale = upload_batch(&conn, batch, connect_to(&server), &mut |_| {}, &|| false).unwrap();
+    let stale = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert!(stale.blocked.is_some());
     assert!(server.lock().unwrap().puts.is_empty());
 
-    let refreshed = prepare_batch(&conn, batch, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
+    let refreshed = prepare_pending(&conn, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
     assert_eq!((refreshed.prepared, refreshed.current), (1, 2));
-    let sent = upload_batch(&conn, batch, connect_to(&server), &mut |_| {}, &|| false).unwrap();
+    let sent = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert_eq!((sent.uploaded, sent.failed.len()), (3, 0));
     let meta = EmbedMeta {
         title: "Arctic fox resting on a snowy hill Generative AI".to_string(),
         description: "Arctic fox resting on a snowy hill Generative AI".to_string(),
         keywords: keywords.to_vec(),
     };
-    verify_embedded(&export_dir.join(batch.to_string()).join("shot1.jpg"), &meta).unwrap();
+    verify_embedded(&export_dir.join("shot1.jpg"), &meta).unwrap();
 }

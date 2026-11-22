@@ -1,4 +1,4 @@
-//! The SQLite state database: schema, scan registration, batches, event log.
+//! The SQLite state database: schema, scan registration, upload queue, event log.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -8,7 +8,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
-use super::metadata::{split_into_batches, Item};
+use super::metadata::Item;
 use crate::error::AppResult;
 
 pub const PENDING: &str = "pending";
@@ -22,16 +22,8 @@ const HASH_SUFFIX_CHARS: usize = 8;
 const HASH_CHUNK_BYTES: usize = 1024 * 1024;
 
 pub const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS batches (
-    id INTEGER PRIMARY KEY,
-    folder TEXT NOT NULL,
-    part INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (folder, part)
-);
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY,
-    batch_id INTEGER REFERENCES batches(id),
     path TEXT NOT NULL UNIQUE,
     filename TEXT NOT NULL,
     sha256 TEXT NOT NULL,
@@ -151,7 +143,6 @@ pub struct ScanResult {
     pub invalid: usize,
     pub needs_metadata: usize,
     pub changed_after_upload: Vec<String>,
-    pub batches_created: usize,
 }
 
 /// What the scan needs to know about a file: size and modification time in nanoseconds.
@@ -264,7 +255,7 @@ fn upsert(conn: &Connection, entry: &Registration) -> AppResult<()> {
             mtime_ns=excluded.mtime_ns, root=excluded.root, title=excluded.title,
             keywords=excluded.keywords,
             category=excluded.category, status=excluded.status, error=excluded.error,
-            batch_id=NULL, updated_at=excluded.updated_at",
+            updated_at=excluded.updated_at",
         params![
             entry.image.to_string_lossy(),
             entry.filename,
@@ -286,7 +277,7 @@ fn upsert(conn: &Connection, entry: &Registration) -> AppResult<()> {
 pub type CheckImage<'a> = &'a dyn Fn(&Path) -> Vec<String>;
 pub type ProgressFn<'a> = &'a mut dyn FnMut(usize, usize, &str);
 
-/// Registers new files, skips known ones and groups new valid files into batches.
+/// Registers new files and skips known ones.
 ///
 /// `on_progress(done, total, path)` runs before each file; `should_stop()` ends the scan early (what
 /// was registered so far is kept). `check_image` runs only for new or changed files, so a rescan of a
@@ -297,7 +288,6 @@ pub fn scan_folder(
     images: &[PathBuf],
     metadata: &HashMap<PathBuf, Item>,
     check_image: CheckImage,
-    batch_size: Option<usize>,
     on_progress: ProgressFn,
     should_stop: &dyn Fn() -> bool,
 ) -> AppResult<ScanResult> {
@@ -359,108 +349,8 @@ pub fn scan_folder(
             }
         }
     }
-    result.batches_created = batch_unassigned(&tx, batch_size)?;
     tx.commit()?;
     Ok(result)
-}
-
-struct PendingRow {
-    path: String,
-    root: String,
-    item: Item,
-}
-
-fn item_of(filename: String, title: String, keywords: &str, category: String) -> Item {
-    Item { filename, title, keywords: parse_keywords(keywords), category }
-}
-
-/// Puts pending files that have no batch yet into new batches, grouped by scan root.
-/// The caller owns the transaction. Returns the number of batches created.
-pub fn batch_unassigned(conn: &Connection, batch_size: Option<usize>) -> AppResult<usize> {
-    let mut stmt = conn.prepare(
-        "SELECT path, root, filename, title, keywords, category FROM files
-         WHERE status = ? AND batch_id IS NULL ORDER BY id",
-    )?;
-    let rows: Vec<PendingRow> = stmt
-        .query_map([PENDING], |row| {
-            Ok(PendingRow {
-                path: row.get(0)?,
-                root: row.get(1)?,
-                item: item_of(row.get(2)?, row.get(3)?, &row.get::<_, String>(4)?, row.get(5)?),
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-    let mut by_root: Vec<(String, Vec<PendingRow>)> = Vec::new();
-    for row in rows {
-        match by_root.iter_mut().find(|(root, _)| *root == row.root) {
-            Some((_, group)) => group.push(row),
-            None => by_root.push((row.root.clone(), vec![row])),
-        }
-    }
-    let mut created = 0;
-    for (root, group) in by_root {
-        let entries: Vec<(String, Item)> = group.into_iter().map(|row| (row.path, row.item)).collect();
-        created += assign_batches_for(conn, &root, entries, batch_size)?;
-    }
-    Ok(created)
-}
-
-/// The latest batch of `root` while it can still take files: every file of it is still pending.
-fn open_batch(conn: &Connection, root: &str) -> AppResult<Option<(i64, Vec<(String, Item)>)>> {
-    let id: Option<i64> = conn
-        .query_row("SELECT id FROM batches WHERE folder = ? ORDER BY part DESC LIMIT 1", [root], |row| row.get(0))
-        .optional()?;
-    let Some(id) = id else { return Ok(None) };
-    let mut stmt = conn
-        .prepare("SELECT path, filename, title, keywords, category, status FROM files WHERE batch_id = ? ORDER BY id")?;
-    let rows: Vec<(String, Item, String)> = stmt
-        .query_map([id], |row| {
-            let item = item_of(row.get(1)?, row.get(2)?, &row.get::<_, String>(3)?, row.get(4)?);
-            Ok((row.get(0)?, item, row.get(5)?))
-        })?
-        .collect::<Result<_, _>>()?;
-    if rows.is_empty() || rows.iter().any(|(_, _, status)| status != PENDING) {
-        return Ok(None);
-    }
-    Ok(Some((id, rows.into_iter().map(|(path, item, _)| (path, item)).collect())))
-}
-
-/// Puts `new_valid` into batches of `root`: first into the open batch, the overflow into new ones.
-fn assign_batches_for(conn: &Connection, root: &str, new_valid: Vec<(String, Item)>, batch_size: Option<usize>) -> AppResult<usize> {
-    if new_valid.is_empty() {
-        return Ok(0);
-    }
-    let (open_id, open_files) = match open_batch(conn, root)? {
-        Some((id, files)) => (Some(id), files),
-        None => (None, Vec::new()),
-    };
-    let path_by_name: HashMap<String, String> = new_valid
-        .iter()
-        .chain(open_files.iter())
-        .map(|(path, item)| (item.filename.clone(), path.clone()))
-        .collect();
-    let items: Vec<Item> = open_files.iter().chain(new_valid.iter()).map(|(_, item)| item.clone()).collect();
-    let next_part: i64 =
-        conn.query_row("SELECT COALESCE(MAX(part), 0) + 1 FROM batches WHERE folder = ?", [root], |row| row.get(0))?;
-    let mut created: usize = 0;
-    for (index, group) in split_into_batches(&items, batch_size).iter().enumerate() {
-        let batch_id = match open_id.filter(|_| index == 0) {
-            Some(id) => id,
-            None => {
-                let part = next_part + i64::try_from(created).unwrap_or(0);
-                conn.execute(
-                    "INSERT INTO batches (folder, part, created_at) VALUES (?, ?, ?)",
-                    params![root, part, now()],
-                )?;
-                created += 1;
-                conn.last_insert_rowid()
-            }
-        };
-        for item in group {
-            conn.execute("UPDATE files SET batch_id = ? WHERE path = ?", params![batch_id, path_by_name[&item.filename]])?;
-        }
-    }
-    Ok(created)
 }
 
 /// Invalid files under `root` as (path, error). Compared as paths, not with a LIKE pattern: a pattern
@@ -604,13 +494,6 @@ pub fn approve_reviewed(conn: &Connection, filenames: Option<&[String]>) -> AppR
     }
 }
 
-pub fn assign_batches(conn: &Connection, batch_size: Option<usize>) -> AppResult<usize> {
-    let tx = conn.unchecked_transaction()?;
-    let created = batch_unassigned(&tx, batch_size)?;
-    tx.commit()?;
-    Ok(created)
-}
-
 /// Statuses whose files may be captioned again (their text is replaced).
 pub const RECAPTIONABLE: [&str; 3] = [NEEDS_METADATA, PENDING, REVIEW];
 
@@ -641,8 +524,8 @@ pub struct Generated<'a> {
     pub review_reason: &'a str,
 }
 
-/// Attaches generated metadata. The file becomes pending (ready to be batched), unless a review reason
-/// is set: then it goes to `review` and stays out of batches until a person approves it. Only a new file
+/// Attaches generated metadata. The file becomes pending (ready to upload), unless a review reason
+/// is set: then it goes to `review` and stays out of the upload until a person approves it. Only a new file
 /// is filled in, so what a person edited meanwhile is never overwritten; with `redo` a described or
 /// flagged file is replaced too.
 pub fn set_metadata(conn: &Connection, path: &Path, data: &Generated, redo: bool) -> AppResult<()> {
@@ -680,40 +563,7 @@ pub fn record_error(conn: &Connection, path: &Path, error: &str) -> AppResult<()
     Ok(())
 }
 
-/// A batch the upload page lists, with how many of its files are waiting or already on the server.
-#[derive(Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PendingBatch {
-    pub batch_id: i64,
-    pub folder: String,
-    pub part: i64,
-    pub n: i64,
-}
-
-/// Batches with files waiting for upload or uploaded but not yet submitted, oldest first: an uploaded
-/// file stays in its batch's queue until the batch is sent to Adobe.
-pub fn upload_batches(conn: &Connection) -> AppResult<Vec<PendingBatch>> {
-    let mut stmt = conn.prepare(
-        "SELECT b.id, b.folder, b.part, COUNT(*) FROM files f JOIN batches b ON b.id = f.batch_id
-         WHERE f.status IN (?, ?) GROUP BY b.id ORDER BY b.id",
-    )?;
-    let rows = stmt.query_map([PENDING, UPLOADED], |row| {
-        Ok(PendingBatch { batch_id: row.get(0)?, folder: row.get(1)?, part: row.get(2)?, n: row.get(3)? })
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}
-
-/// For every batch the number of its files per status: what the batch's own status is made of.
-pub fn batch_status_counts(conn: &Connection) -> AppResult<Vec<(i64, String, i64)>> {
-    let mut stmt = conn.prepare(
-        "SELECT batch_id, status, COUNT(*) FROM files WHERE batch_id IS NOT NULL
-         GROUP BY batch_id, status ORDER BY batch_id, status",
-    )?;
-    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}
-
-/// A file of a batch as the upload queue shows it.
+/// A file as the upload queue shows it.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueFile {
@@ -724,11 +574,12 @@ pub struct QueueFile {
     pub error: Option<String>,
 }
 
-/// Every file of a batch with its status, in upload order.
-pub fn batch_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<QueueFile>> {
-    let mut stmt =
-        conn.prepare("SELECT path, filename, status, size, error FROM files WHERE batch_id = ? ORDER BY id")?;
-    let rows = stmt.query_map([batch_id], |row| {
+/// Every file that is part of the upload (pending, uploaded or submitted) with its status, in upload order.
+pub fn queue_files(conn: &Connection) -> AppResult<Vec<QueueFile>> {
+    let mut stmt = conn.prepare(
+        "SELECT path, filename, status, size, error FROM files WHERE status IN (?, ?, ?) ORDER BY id",
+    )?;
+    let rows = stmt.query_map([PENDING, UPLOADED, SUBMITTED], |row| {
         Ok(QueueFile {
             path: row.get(0)?,
             filename: row.get(1)?,
@@ -740,7 +591,6 @@ pub fn batch_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<QueueFile>
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Pending files of a batch as (local path, remote name).
 /// A file waiting for upload: the original, the prepared copy that goes out, and its flat SFTP name.
 #[derive(Debug, PartialEq, Eq)]
 pub struct UploadFile {
@@ -749,10 +599,10 @@ pub struct UploadFile {
     pub name: String,
 }
 
-pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<UploadFile>> {
-    let mut stmt =
-        conn.prepare("SELECT path, export_path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
-    let rows = stmt.query_map(params![PENDING, batch_id], |row| {
+/// Every pending file: what an upload run sends.
+pub fn pending_files(conn: &Connection) -> AppResult<Vec<UploadFile>> {
+    let mut stmt = conn.prepare("SELECT path, export_path, filename FROM files WHERE status = ? ORDER BY id")?;
+    let rows = stmt.query_map(params![PENDING], |row| {
         Ok(UploadFile {
             source: PathBuf::from(row.get::<_, String>(0)?),
             export: PathBuf::from(row.get::<_, String>(1)?),
@@ -770,11 +620,11 @@ pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-/// Marks the uploaded files of a batch as submitted; returns how many.
-pub fn mark_batch_submitted(conn: &Connection, batch_id: i64) -> AppResult<usize> {
+/// Marks every uploaded file as submitted; returns how many.
+pub fn mark_all_submitted(conn: &Connection) -> AppResult<usize> {
     Ok(conn.execute(
-        "UPDATE files SET status = ?, updated_at = ? WHERE batch_id = ? AND status = ?",
-        params![SUBMITTED, now(), batch_id, UPLOADED],
+        "UPDATE files SET status = ?, updated_at = ? WHERE status = ?",
+        params![SUBMITTED, now(), UPLOADED],
     )?)
 }
 

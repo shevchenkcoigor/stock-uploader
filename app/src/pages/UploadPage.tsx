@@ -6,17 +6,14 @@ import { Thumb } from '../components/Thumb'
 import {
   filesApi,
   uploadApi,
-  type PendingBatch,
   type PrepareProgress,
   type QueueFile,
-  type UploadOverview,
   type UploadProgress,
 } from '../lib/api'
 import { formatSize } from '../lib/describe'
 import { DATA_CHANGED_EVENT } from '../lib/events'
 import {
   STATE_VIEWS,
-  batchStatusText,
   fractionOf,
   prepareTrouble,
   progressText,
@@ -24,6 +21,7 @@ import {
   sortedRows,
   summaryText,
   totalsOf,
+  uploadHint,
   type Current,
   type UploadSort,
 } from '../lib/upload'
@@ -44,11 +42,6 @@ const COLUMNS: ReadonlyArray<{ field: UploadSort; title: string; width?: string 
 const secondary =
   'h-8 rounded-md border border-line-strong bg-surface px-3 text-sm outline-none hover:bg-sunken focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50'
 
-function batchLabel(batch: PendingBatch, overview: UploadOverview): string {
-  const counts = overview.counts.filter((item) => item.batchId === batch.batchId)
-  return `Батч ${batch.batchId}: ${batch.folder}, часть ${batch.part} — ${batch.n} файлов, статус: ${batchStatusText(counts)}`
-}
-
 function Bar({ fraction, label }: { fraction: number; label: string }) {
   const percent = Math.round(fraction * PERCENT)
   return (
@@ -59,8 +52,6 @@ function Bar({ fraction, label }: { fraction: number; label: string }) {
 }
 
 export function UploadPage({ active }: PageProps) {
-  const [overview, setOverview] = useState<UploadOverview>({ batches: [], counts: [] })
-  const [batch, setBatch] = useState<number | null>(null)
   const [files, setFiles] = useState<QueueFile[]>([])
   const [running, setRunning] = useState(false)
   const [current, setCurrent] = useState<Current | null>(null)
@@ -71,38 +62,22 @@ export function UploadPage({ active }: PageProps) {
 
   const say = useCallback((text: string, error = false) => setNotice({ text, error }), [])
 
-  const loadOverview = useCallback(() => {
+  const loadQueue = useCallback(() => {
     uploadApi
-      .overview()
-      .then((fresh) => {
-        setOverview(fresh)
-        // the last batch with files still waiting by default (else the last one); a batch that is gone is replaced
-        setBatch((chosen) => {
-          if (chosen !== null && fresh.batches.some((item) => item.batchId === chosen)) return chosen
-          const waiting = fresh.batches.filter((item) => fresh.counts.some((c) => c.batchId === item.batchId && c.status === 'pending'))
-          return (waiting.at(-1) ?? fresh.batches.at(-1))?.batchId ?? null
-        })
-      })
+      .queue()
+      .then(setFiles)
       .catch((reason) => say(String(reason), true))
   }, [say])
 
-  const loadQueue = useCallback(() => {
-    if (batch === null) return
-    uploadApi
-      .queue(batch)
-      .then(setFiles)
-      .catch((reason) => say(String(reason), true))
-  }, [batch, say])
-
   useEffect(() => {
-    loadOverview()
-    window.addEventListener(DATA_CHANGED_EVENT, loadOverview)
-    return () => window.removeEventListener(DATA_CHANGED_EVENT, loadOverview)
-  }, [loadOverview])
+    loadQueue()
+    window.addEventListener(DATA_CHANGED_EVENT, loadQueue)
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, loadQueue)
+  }, [loadQueue])
   useEffect(() => {
-    if (active && !running) loadOverview()
-  }, [active, running, loadOverview])
-  // the queue follows the chosen batch, and every finished file of a run
+    if (active && !running) loadQueue()
+  }, [active, running, loadQueue])
+  // the queue follows every finished file of a run
   useEffect(loadQueue, [loadQueue, doneCount])
 
   useEffect(() => {
@@ -123,18 +98,18 @@ export function UploadPage({ active }: PageProps) {
 
   // the copies with the title and keywords embedded are made first (a no-op when they are current), then sent
   const run = async () => {
-    if (batch === null || running) return
+    if (running) return
     setRunning(true)
     setCurrent(null)
     try {
       say('Готовлю файлы: вшиваю название и ключевые слова…')
-      const trouble = prepareTrouble(await uploadApi.prepare(batch))
+      const trouble = prepareTrouble(await uploadApi.prepare())
       if (trouble) {
         say(trouble, true)
         return
       }
       say(KEYCHAIN_NOTICE)
-      const report = await uploadApi.start(batch)
+      const report = await uploadApi.start()
       if (report.blocked) {
         say(report.blocked, true)
       } else if (report.error) {
@@ -155,32 +130,30 @@ export function UploadPage({ active }: PageProps) {
   }
 
   const markSubmitted = async () => {
-    if (batch === null) return
     const agreed = await ask(
-      `Вы уже выбрали категории в портале и отправили файлы батча ${batch} на проверку?\nБатч будет помечен как отправленный.`,
+      'Вы уже выбрали категории в портале и отправили загруженные файлы на проверку?\nВсе файлы со статусом «На SFTP» будут помечены как отправленные.',
       { title: 'Отметить отправленным', kind: 'warning' },
     )
     if (!agreed) return
     setRunning(true)
     try {
-      const report = await uploadApi.markSubmitted(batch)
-      const warnings = report.warnings.map((warning) => `ВНИМАНИЕ ${warning}.`).join(' ')
-      say(`Отмечено отправленными: ${report.count}. ${warnings}`.trim(), report.count === 0)
+      const report = await uploadApi.markSubmitted()
+      say(`Отмечено отправленными: ${report.count}`, report.count === 0)
     } catch (reason) {
       say(`ОШИБКА: ${reason}`, true)
     } finally {
       setRunning(false)
-        window.dispatchEvent(new Event(DATA_CHANGED_EVENT))
+      window.dispatchEvent(new Event(DATA_CHANGED_EVENT))
     }
   }
 
-  // no batch, no queue
-  const rows = useMemo(() => rowsFromQueue(batch === null ? [] : files, running, current), [batch, files, running, current])
+  const rows = useMemo(() => rowsFromQueue(files, running, current), [files, running, current])
   const totals = totalsOf(rows)
   const ordered = useMemo(() => sortedRows(rows, sort.field, sort.descending), [rows, sort])
   const shownPage = Math.min(page, Math.max(0, Math.ceil(ordered.length / PAGE_SIZE) - 1))
   const visible = ordered.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)
   const waiting = totals.done < totals.total
+  const hint = uploadHint(totals)
 
   const sortBy = (field: UploadSort) => {
     setSort((now) => ({ field, descending: now.field === field && !now.descending }))
@@ -190,26 +163,6 @@ export function UploadPage({ active }: PageProps) {
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
-      <label className="flex items-center gap-3 text-sm">
-        <span className="text-ink-muted">Батч</span>
-        <select
-          value={batch ?? ''}
-          disabled={running || overview.batches.length === 0}
-          onChange={(event) => {
-            setBatch(Number(event.target.value))
-            setPage(0)
-                  }}
-          className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-        >
-          {overview.batches.length === 0 && <option value="">Нет файлов для загрузки</option>}
-          {overview.batches.map((item) => (
-            <option key={item.batchId} value={item.batchId}>
-              {batchLabel(item, overview)}
-            </option>
-          ))}
-        </select>
-      </label>
-
       <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-line bg-surface p-4">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -224,7 +177,8 @@ export function UploadPage({ active }: PageProps) {
           </button>
           <button
             type="button"
-            disabled={running || !waiting || batch === null}
+            disabled={running || !waiting}
+            title={hint}
             onClick={() => void run()}
             className="h-8 rounded-md bg-accent px-4 text-sm font-medium text-accent-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
           >
@@ -233,8 +187,8 @@ export function UploadPage({ active }: PageProps) {
           <button
             type="button"
             className={secondary}
-            disabled={running || waiting || batch === null || ordered.length === 0}
-            title="Когда категории выбраны в портале и файлы отправлены на проверку"
+            disabled={running || totals.uploaded === 0}
+            title="Когда категории выбраны в портале и загруженные файлы отправлены на проверку"
             onClick={() => void markSubmitted()}
           >
             Отметить отправленным
@@ -302,7 +256,7 @@ export function UploadPage({ active }: PageProps) {
         </div>
 
         <Pager total={ordered.length} pageSize={PAGE_SIZE} page={shownPage} onPage={setPage} />
-        {!waiting && ordered.length > 0 && !running && (
+        {!waiting && totals.uploaded > 0 && !running && (
           <p className="rounded-md bg-sunken px-3 py-2 text-sm">
             Все файлы на SFTP. Название и ключевые слова уже вшиты в файлы. Дальше в портале Adobe Stock: Uploaded Files →
             категория, «Created using generative AI tools» для всех файлов и «People and Property are fictional» там, где есть

@@ -4,7 +4,7 @@ import { Button, Field, NumberInput, Section, Segmented, TextInput } from '../co
 import { settingsApi, type ThemeMode } from '../lib/api'
 import { useSettings, type SaveState } from '../lib/useSettings'
 
-const MAX_BATCH_SIZE = 20_000
+const MAX_CAPTION_LIMIT = 20_000
 const MAX_CAPTION_WORKERS = 8
 const MAX_IMAGES_PER_CALL = 20
 const MAX_PORT = 65_535
@@ -100,7 +100,7 @@ export function SettingsPage() {
               <NumberInput
                 value={draft.captionLimit}
                 min={1}
-                max={MAX_BATCH_SIZE}
+                max={MAX_CAPTION_LIMIT}
                 onChange={(captionLimit) => change({ captionLimit })}
               />
             </Field>
@@ -124,16 +124,8 @@ export function SettingsPage() {
           <CheckButton label="Проверить Claude" beforeRun={model.flush} run={settingsApi.checkClaude} />
         </Section>
 
-        <Section title="Батчи и заголовки">
+        <Section title="Заголовки">
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Файлов в батче">
-              <NumberInput
-                value={draft.batchSize}
-                min={1}
-                max={MAX_BATCH_SIZE}
-                onChange={(batchSize) => change({ batchSize })}
-              />
-            </Field>
             <Field label="Метка в конце заголовка" hint="Пусто — не добавлять.">
               <TextInput value={draft.aiTitleLabel} onChange={(aiTitleLabel) => change({ aiTitleLabel })} />
             </Field>

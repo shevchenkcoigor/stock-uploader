@@ -16,7 +16,6 @@ use crate::prefs;
 
 const PROGRESS_EVENT: &str = "scan-progress";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(80);
-const DEFAULT_BATCH_SIZE: usize = 1000;
 const LAST_SCAN_KEY: &str = "last_scan";
 
 #[derive(Default)]
@@ -66,13 +65,6 @@ pub struct ScanOutcome {
     stopped: bool,
 }
 
-fn batch_size_pref() -> usize {
-    prefs::load()
-        .ok()
-        .and_then(|map| prefs::text(&map, "batch_size", "").trim().parse().ok())
-        .unwrap_or(DEFAULT_BATCH_SIZE)
-}
-
 fn save_last_scan(outcome: &ScanOutcome) -> AppResult<()> {
     let saved = serde_json::json!({
         "at": Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
@@ -113,7 +105,7 @@ fn run_scan(app: &AppHandle, control: &ScanControl, root: PathBuf, recursive: bo
         if images.is_empty() {
             return Ok(None);
         }
-        scan::scan(&mut conn, &resolved, &images, batch_size_pref(), &mut emit, &should_stop).map(Some)
+        scan::scan(&mut conn, &resolved, &images, &mut emit, &should_stop).map(Some)
     })?;
     let Some(report) = report else { return Ok(None) };
     let outcome = ScanOutcome {

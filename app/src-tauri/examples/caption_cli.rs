@@ -17,7 +17,6 @@ fn main() {
         limit,
         per_call: 2,
         workers: 1,
-        batch_size: 1000,
         names: None,
         redo: false,
         ai_label: "Generative AI",

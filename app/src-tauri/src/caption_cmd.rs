@@ -73,7 +73,6 @@ fn run(app: &AppHandle, control: &CaptionControl, names: Option<Vec<String>>, re
         limit: config.caption_limit as usize,
         per_call: config.caption_per_call as usize,
         workers: config.caption_workers as usize,
-        batch_size: config.batch_size as usize,
         names: names.as_deref(),
         redo,
         ai_label: &config.ai_title_label,

@@ -93,12 +93,11 @@ pub struct ScanReport {
     pub stopped: bool,
 }
 
-/// Registers the images of `root` (from `find_images`), splits new ones into batches and logs it.
+/// Registers the images of `root` (from `find_images`), and logs it.
 pub fn scan(
     conn: &mut Connection,
     root: &Path,
     images: &[PathBuf],
-    batch_size: usize,
     on_progress: ProgressFn,
     should_stop: &dyn Fn() -> bool,
 ) -> AppResult<ScanReport> {
@@ -108,18 +107,17 @@ pub fn scan(
         problems.extend(loaded.problems.get(image).cloned().unwrap_or_default());
         problems
     };
-    let result = state::scan_folder(conn, root, images, &loaded.items, &check, Some(batch_size), on_progress, should_stop)?;
+    let result = state::scan_folder(conn, root, images, &loaded.items, &check, on_progress, should_stop)?;
     state::log_event(
         conn,
         "scan",
         &format!(
-            "{}: added {}, need metadata {}, unchanged {}, invalid {}, new batches {}",
+            "{}: added {}, need metadata {}, unchanged {}, invalid {}",
             root.display(),
             result.added,
             result.needs_metadata,
             result.unchanged,
-            result.invalid,
-            result.batches_created
+            result.invalid
         ),
         "info",
         None,
@@ -157,9 +155,9 @@ mod tests {
         folder.canonicalize().unwrap()
     }
 
-    fn run_scan(conn: &mut Connection, folder: &Path, batch_size: usize) -> ScanReport {
+    fn run_scan(conn: &mut Connection, folder: &Path) -> ScanReport {
         let images = find_images(folder, true);
-        scan(conn, folder, &images, batch_size, &mut |_, _, _| {}, &|| false).unwrap()
+        scan(conn, folder, &images, &mut |_, _, _| {}, &|| false).unwrap()
     }
 
     fn count(conn: &Connection, sql: &str) -> i64 {
@@ -172,16 +170,16 @@ mod tests {
         let folder = folder_with(dir.path(), "f1", &[("a.jpg", 10), ("b.jpg", 60)]);
         let mut conn = state::open_db(&dir.path().join("s.db")).unwrap();
 
-        let first = run_scan(&mut conn, &folder, 1000);
+        let first = run_scan(&mut conn, &folder);
         assert_eq!((first.found, first.result.needs_metadata, first.result.invalid), (2, 2, 0));
 
-        let again = run_scan(&mut conn, &folder, 1000);
+        let again = run_scan(&mut conn, &folder);
         assert_eq!((again.result.unchanged, again.result.needs_metadata), (2, 0));
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM files WHERE status = 'needs_metadata'"), 2);
     }
 
     #[test]
-    fn metadata_csv_makes_files_pending_and_batches_them() {
+    fn metadata_csv_makes_files_pending() {
         let dir = tempfile::tempdir().unwrap();
         let folder = folder_with(dir.path(), "f1", &[("a.jpg", 10), ("b.jpg", 60), ("c.jpg", 110)]);
         std::fs::write(
@@ -191,10 +189,9 @@ mod tests {
         .unwrap();
         let mut conn = state::open_db(&dir.path().join("s.db")).unwrap();
 
-        let report = run_scan(&mut conn, &folder, 2);
-        assert_eq!((report.result.added, report.result.batches_created), (3, 2));
+        let report = run_scan(&mut conn, &folder);
+        assert_eq!(report.result.added, 3);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM files WHERE status = 'pending'"), 3);
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM batches"), 2);
     }
 
     #[test]
@@ -203,8 +200,8 @@ mod tests {
         let first = folder_with(dir.path(), "f1", &[("a.jpg", 10)]);
         let second = folder_with(dir.path(), "f2", &[("a.jpg", 10)]);
         let mut conn = state::open_db(&dir.path().join("s.db")).unwrap();
-        run_scan(&mut conn, &first, 1000);
-        let report = run_scan(&mut conn, &second, 1000);
+        run_scan(&mut conn, &first);
+        let report = run_scan(&mut conn, &second);
         assert_eq!(report.result.invalid, 1);
         let error: String = conn.query_row("SELECT error FROM files WHERE status = 'invalid'", [], |r| r.get(0)).unwrap();
         assert!(error.starts_with("same content as "), "{error}");
@@ -216,8 +213,8 @@ mod tests {
         let first = folder_with(dir.path(), "f1", &[("a.jpg", 10)]);
         let second = folder_with(dir.path(), "f2", &[("a.jpg", 200)]);
         let mut conn = state::open_db(&dir.path().join("s.db")).unwrap();
-        run_scan(&mut conn, &first, 1000);
-        run_scan(&mut conn, &second, 1000);
+        run_scan(&mut conn, &first);
+        run_scan(&mut conn, &second);
         let names: Vec<String> = conn
             .prepare("SELECT filename FROM files ORDER BY id")
             .unwrap()
@@ -251,7 +248,7 @@ mod tests {
         let folder = folder_with(dir.path(), "f1", &[("a.jpg", 10)]);
         std::fs::write(folder.join("bad.jpg"), b"nope").unwrap();
         let mut conn = state::open_db(&dir.path().join("s.db")).unwrap();
-        let report = run_scan(&mut conn, &folder, 1000);
+        let report = run_scan(&mut conn, &folder);
         assert_eq!(report.result.invalid, 1);
         let warnings: i64 = conn
             .query_row("SELECT COUNT(*) FROM events WHERE level = 'warning' AND filename = ?", params!["bad.jpg"], |r| r.get(0))
@@ -269,7 +266,7 @@ mod tests {
         let images = find_images(&folder, true);
         let seen = std::cell::Cell::new(0);
         let stop_after_one = || seen.get() >= 1;
-        let report = scan(&mut conn, &folder, &images, 1000, &mut |done, _, _| seen.set(done + 1), &stop_after_one).unwrap();
+        let report = scan(&mut conn, &folder, &images, &mut |done, _, _| seen.set(done + 1), &stop_after_one).unwrap();
         assert!(report.stopped);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM files"), 1);
     }

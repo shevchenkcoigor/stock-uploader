@@ -1,4 +1,4 @@
-//! Item rules (title, keywords, category), reading our own input `metadata.csv`, and splitting into batches.
+//! Item rules (title, keywords, category), reading our own input `metadata.csv`.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -170,15 +170,6 @@ pub fn check_items(items: &[Item], existing_files: &HashSet<String>, ai_label: &
     problems
 }
 
-/// Groups items into batches of at most `batch_size` files (one batch when no size is given).
-pub fn split_into_batches(items: &[Item], batch_size: Option<usize>) -> Vec<Vec<Item>> {
-    match batch_size.filter(|size| *size > 0) {
-        Some(size) => items.chunks(size).map(<[Item]>::to_vec).collect(),
-        None if items.is_empty() => Vec::new(),
-        None => vec![items.to_vec()],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,14 +221,6 @@ mod tests {
         assert_eq!(keyword_problem("photo.jpg"), Some("looks like file information"));
         assert_eq!(keyword_problem("12 mp"), Some("looks like file information"));
         assert_eq!(keyword_problem("sunset"), None);
-    }
-
-    #[test]
-    fn batches_respect_the_batch_size() {
-        let items: Vec<Item> = (0..5).map(|n| item(&format!("{n}.jpg"), "T", &["k"])).collect();
-        let sizes: Vec<usize> = split_into_batches(&items, Some(2)).iter().map(Vec::len).collect();
-        assert_eq!(sizes, vec![2, 2, 1]);
-        assert_eq!(split_into_batches(&items, None).len(), 1);
     }
 
     #[test]

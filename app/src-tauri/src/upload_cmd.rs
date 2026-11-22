@@ -1,4 +1,4 @@
-//! The upload page's commands: batches waiting for upload, a batch's queue, a run with progress and pause.
+//! The upload page's commands: the queue, preparing copies, a run with progress and pause.
 
 use std::time::{Duration, Instant};
 
@@ -23,27 +23,6 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 #[derive(Clone, Default)]
 pub struct UploadControl(ScanControl);
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusCount {
-    batch_id: i64,
-    status: String,
-    n: i64,
-}
-
-impl StatusCount {
-    pub(crate) fn new(batch_id: i64, status: String, n: i64) -> Self {
-        Self { batch_id, status, n }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UploadOverview {
-    batches: Vec<state::PendingBatch>,
-    counts: Vec<StatusCount>,
-}
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PrepareProgress {
@@ -52,32 +31,13 @@ struct PrepareProgress {
     file: String,
 }
 
-/// Batches with files waiting for upload, and what every batch is made of.
+/// Every file that is part of the upload with its status, in upload order.
 #[tauri::command]
-pub async fn upload_overview() -> AppResult<UploadOverview> {
-    tauri::async_runtime::spawn_blocking(|| {
-        backup::guard_state_db(&db::db_path())?;
-        let Some(conn) = db::open_read_only()? else {
-            return Ok(UploadOverview { batches: vec![], counts: vec![] });
-        };
-        let counts = state::batch_status_counts(&conn)?
-            .into_iter()
-            .map(|(batch_id, status, n)| StatusCount::new(batch_id, status, n))
-            .collect();
-        let batches = state::upload_batches(&conn)?;
-        Ok(UploadOverview { batches, counts })
-    })
-    .await
-    .map_err(|error| AppError::Check(error.to_string()))?
-}
-
-/// Every file of a batch with its status, in upload order.
-#[tauri::command]
-pub async fn upload_queue(batch: i64) -> AppResult<Vec<state::QueueFile>> {
+pub async fn upload_queue() -> AppResult<Vec<state::QueueFile>> {
     tauri::async_runtime::spawn_blocking(move || {
         backup::guard_state_db(&db::db_path())?;
         match db::open_read_only()? {
-            Some(conn) => state::batch_files(&conn, batch),
+            Some(conn) => state::queue_files(&conn),
             None => Ok(vec![]),
         }
     })
@@ -85,7 +45,7 @@ pub async fn upload_queue(batch: i64) -> AppResult<Vec<state::QueueFile>> {
     .map_err(|error| AppError::Check(error.to_string()))?
 }
 
-fn run(app: &AppHandle, control: &UploadControl, batch: i64) -> AppResult<UploadReport> {
+fn run(app: &AppHandle, control: &UploadControl) -> AppResult<UploadReport> {
     let database = db::db_path();
     let mut last_emit: Option<Instant> = None;
     let mut emit = |progress: upload::UploadProgress| {
@@ -110,11 +70,11 @@ fn run(app: &AppHandle, control: &UploadControl, batch: i64) -> AppResult<Upload
             })?;
             Ok(Box::new(uploader))
         };
-        upload::upload_batch(&conn, batch, connect, &mut emit, &should_stop)
+        upload::upload_pending(&conn, connect, &mut emit, &should_stop)
     })
 }
 
-fn prepare(app: &AppHandle, control: &UploadControl, batch: i64) -> AppResult<PrepareReport> {
+fn prepare(app: &AppHandle, control: &UploadControl) -> AppResult<PrepareReport> {
     let database = db::db_path();
     let export_dir = db::export_dir();
     let ai_label = settings::get_settings()?.settings.ai_title_label;
@@ -124,31 +84,31 @@ fn prepare(app: &AppHandle, control: &UploadControl, batch: i64) -> AppResult<Pr
     let should_stop = || control.0.stop_requested();
     backup::protected(&database, || {
         let conn = state::open_db(&database)?;
-        export::prepare_batch(&conn, batch, &export_dir, &ai_label, &mut emit, &should_stop)
+        export::prepare_pending(&conn, &export_dir, &ai_label, &mut emit, &should_stop)
     })
 }
 
-/// Makes the copies of a batch's pending files that carry their title and keywords; they are what gets uploaded.
+/// Makes the copies of the pending files that carry their title and keywords; they are what gets uploaded.
 #[tauri::command]
-pub async fn upload_prepare(app: AppHandle, control: State<'_, UploadControl>, batch: i64) -> AppResult<PrepareReport> {
+pub async fn upload_prepare(app: AppHandle, control: State<'_, UploadControl>) -> AppResult<PrepareReport> {
     let control = control.inner().clone();
     let guard = control.0.begin("Загрузка уже идёт")?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        prepare(&app, &control, batch)
+        prepare(&app, &control)
     })
     .await
     .map_err(|error| AppError::Check(error.to_string()))?
 }
 
-/// Uploads the pending files of a batch; what is already uploaded is not sent again.
+/// Uploads every pending file; what is already uploaded is not sent again.
 #[tauri::command]
-pub async fn upload_start(app: AppHandle, control: State<'_, UploadControl>, batch: i64) -> AppResult<UploadReport> {
+pub async fn upload_start(app: AppHandle, control: State<'_, UploadControl>) -> AppResult<UploadReport> {
     let control = control.inner().clone();
     let guard = control.0.begin("Загрузка уже идёт")?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        run(&app, &control, batch)
+        run(&app, &control)
     })
     .await
     .map_err(|error| AppError::Check(error.to_string()))?
@@ -159,8 +119,8 @@ pub fn upload_pause(control: State<'_, UploadControl>) {
     control.0.request_stop();
 }
 
-/// Records that the batch was submitted in the portal (a manual step).
+/// Records that everything uploaded was submitted in the portal (a manual step).
 #[tauri::command]
-pub async fn upload_mark_submitted(batch: i64) -> AppResult<SubmittedReport> {
-    mutate(move |conn| submit::mark_submitted(conn, batch)).await
+pub async fn upload_mark_submitted() -> AppResult<SubmittedReport> {
+    mutate(submit::mark_submitted).await
 }

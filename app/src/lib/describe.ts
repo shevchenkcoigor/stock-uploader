@@ -84,14 +84,12 @@ export function captionSummary(report: {
   total: number
   captioned: number
   flagged: string[]
-  newBatches: number
   stopped: boolean
 }): string {
   if (report.total === 0) return 'Нечего подписывать: среди выбранных нет файлов, которые можно подписать'
   const parts = [
     `Подписано: ${report.captioned} из ${report.total}`,
     `на проверке: ${report.flagged.length}`,
-    `новых батчей: ${report.newBatches}`,
   ]
   return parts.join(' · ') + (report.stopped ? ' · отменено' : '')
 }

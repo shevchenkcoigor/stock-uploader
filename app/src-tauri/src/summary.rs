@@ -9,7 +9,7 @@ pub struct StatusCount {
     n: i64,
 }
 
-/// File counts per status over all batches (the status line of the main window).
+/// File counts per status over all files (the status line of the main window).
 #[tauri::command]
 pub fn status_summary() -> AppResult<Vec<StatusCount>> {
     let Some(conn) = open_read_only()? else {
