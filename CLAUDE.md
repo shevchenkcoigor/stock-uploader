@@ -10,10 +10,12 @@ Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywor
 
 ```bash
 ./install.sh                       # build the Tauri desktop app (npm ci + tauri build; host OS only)
-cd app && npm run tauri dev        # develop with hot reload
+cd app && npm run tauri -- dev     # run the desktop app in dev mode (Vite + Rust)
 cd app && npm run lint && npm test && npm run build   # frontend checks
+cd app && npx vitest run src/path/to/file.test.ts     # single frontend test
 cd app/src-tauri && cargo test     # Rust core tests
-cd app/src-tauri && cargo test --lib core::export     # one module's tests
+cd app/src-tauri && cargo test --lib core::export     # Rust tests matching a path filter
+cd app/src-tauri && cargo clippy   # Rust lint
 ```
 
 Pre-commit (`pipx install pre-commit && pre-commit install` once) runs oxlint, vitest and `cargo test` on every commit; a failing hook blocks the commit.
@@ -22,7 +24,6 @@ Pre-commit (`pipx install pre-commit && pre-commit install` once) runs oxlint, v
 
 Pipeline: `scan → caption → (review/approve) → prepare + upload → [portal, manual] → submitted`. The Upload page's button first prepares the batch (copies with embedded metadata, a no-op when they are current) and then uploads the copies; «mark submitted» is on the same page.
 
-- `app/src-tauri/src/core/` is the core; `*_cmd.rs` next to it are the Tauri commands, `app/src/pages/` the React pages. New pipeline logic goes into `core/` and takes callbacks (progress, should-stop) instead of doing I/O; commands only wire it to the UI.
 - `core/state.rs` — SQLite (`state.db`), the **single source of truth**. Owns the schema, file status lifecycle (`needs_metadata`, `review`, `pending`, `uploaded`, `submitted`, `invalid`), batches and the `events` log. `filename` is the flat SFTP name; duplicates in different folders get a content-hash suffix. Older databases are upgraded by `add_missing_columns`; the unused `batches.csv_path` column stays in them.
 - `core/embed.rs` (+ `embed/xmp.rs`, `embed/iptc.rs`) — writes title/description/keywords into a copy of a JPEG with `img-parts`, replacing XMP and IPTC, then reads the copy back to verify. A title over 64 bytes skips IPTC `ObjectName` (a 64-byte field); the full title stays in XMP and `Headline`. Never modifies the source.
 - `core/export.rs` — `prepare_batch` makes copies in `<state.db dir>/export/<batch>/` and records `files.export_path` and `files.embedded_hash` (fingerprint of title + keywords + `EMBED_FORMAT`); `export_readiness` says whether a batch may be uploaded (`Ready`/`Missing`/`Stale`). `upload.rs` refuses a batch that is not `Ready` and sends the copies.
@@ -30,12 +31,22 @@ Pipeline: `scan → caption → (review/approve) → prepare + upload → [porta
 - `core/caption.rs`, `caption_run.rs` — shell out to `claude` in a lightweight mode; images are downscaled and sent several per call; stops after repeated call failures, keeping saved progress. `core/categories.rs` holds the 21 Adobe category codes.
 - `core/backup.rs` — `backup::protected` wraps every mutating run with backups before/after (last 30 kept) and an integrity check; a missing `state.db` with existing backups aborts rather than creating an empty DB. Restoring is manual (copy the newest backup over `state.db`).
 
+### Where to make a change
+
+Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progress and should-stop via callbacks). `*_cmd.rs` stay thin: parse args, call `core`, emit events. React pages in `app/src/pages/` only render state and invoke commands; they hold no pipeline logic.
+
 ## Conventions and gotchas
 
 - Never overwrite or delete the real `state.db` (it also holds the log); for experiments use a separate DB (`ADOBE_STATE_DB` or the «Файл базы» setting).
 - Original files are never modified or moved; the DB stores their absolute paths, so renaming scanned files before upload breaks things. Only the copies in `export/` carry embedded metadata.
 - Test embedded metadata with real images: a flat synthetic image did not get its metadata picked up by the Adobe portal, a real one did (web upload, 2026-11-22). SFTP upload of copies is still to be verified on a real batch.
-- Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout. Merge back to `main` when done.
+- Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout.
+- **`main` is changed only through a pull request.** Never commit, merge or push to `main` directly (`git push origin main`, local `git merge` into `main`, force-pushes). GitHub cannot enforce this for a private repo on the free plan, so it is enforced by `.claude/settings.json` deny rules and the `.githooks/pre-push` hook (enable once: `git config core.hooksPath .githooks`). When work is done, do these steps without waiting to be asked:
+  1. Commit in the worktree branch (`refs #N`).
+  2. `git push -u origin <branch>`.
+  3. `gh pr create` into `main`; the body references the issue (`Closes #N`).
+  4. Automerge: the `automerge` job in `build.yml` merges the PR once the app checks and builds on every OS are green. If CI is red, fix the branch and push again; never merge by hand or bypass CI.
+  5. After the merge, remove the worktree and the local branch.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
-- CI (`.github/workflows/build.yml`) runs the frontend and Rust checks, then builds the desktop app on every OS.
+- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): frontend and Rust checks, builds on every OS, then the `automerge` job merges the PR into `main`.
 - After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).
