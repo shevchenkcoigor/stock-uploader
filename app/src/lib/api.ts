@@ -156,6 +156,59 @@ export const uploadApi = {
   pause: () => invoke<void>('upload_pause'),
 }
 
+export interface CsvEntry {
+  batchId: number
+  name: string
+  rows: number
+  badRows: number
+  state: 'built' | 'sent' | 'error'
+  path: string
+  folder: string
+  part: number
+  /** [status, files] of batch files not on SFTP yet. */
+  waiting: Array<[string, number]>
+  /** Epoch seconds; 0 when the file is missing. */
+  created: number
+  updated: number
+}
+
+export interface CsvRow {
+  filename: string
+  path: string
+  title: string
+  keywords: string[]
+  category: string
+  status: string
+}
+
+export interface CsvOverview {
+  entries: CsvEntry[]
+  offered: PendingBatch[]
+  counts: Array<{ batchId: number; status: string; n: number }>
+}
+
+export interface CsvReport {
+  batch: number
+  rows: number
+  path: string | null
+  notes: string | null
+  people: number
+  problems: string[]
+}
+
+export interface SubmittedReport {
+  count: number
+  warnings: string[]
+  waiting: Array<[string, number]>
+}
+
+export const csvApi = {
+  overview: () => invoke<CsvOverview>('csv_overview'),
+  rows: (batch: number) => invoke<CsvRow[]>('csv_batch_rows', { batch }),
+  build: (batch: number) => invoke<CsvReport>('csv_build', { batch }),
+  markSubmitted: (batch: number) => invoke<SubmittedReport>('csv_mark_submitted', { batch }),
+}
+
 export const scanApi = {
   /** Resolves to null when the folder has no JPEG files. */
   start: (folder: string, recursive: boolean) => invoke<ScanOutcome | null>('scan_start', { folder, recursive }),

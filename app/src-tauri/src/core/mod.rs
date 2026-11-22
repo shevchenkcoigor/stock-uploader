@@ -5,6 +5,8 @@ pub mod backup;
 pub mod caption;
 pub mod caption_run;
 pub mod categories;
+pub mod csv_batches;
+pub mod csv_build;
 pub mod describe;
 pub mod imaging;
 pub mod metadata_csv;

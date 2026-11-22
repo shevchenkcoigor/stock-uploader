@@ -27,6 +27,12 @@ pub struct StatusCount {
     n: i64,
 }
 
+impl StatusCount {
+    pub(crate) fn new(batch_id: i64, status: String, n: i64) -> Self {
+        Self { batch_id, status, n }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadOverview {
@@ -44,7 +50,7 @@ pub async fn upload_overview() -> AppResult<UploadOverview> {
         };
         let counts = state::batch_status_counts(&conn)?
             .into_iter()
-            .map(|(batch_id, status, n)| StatusCount { batch_id, status, n })
+            .map(|(batch_id, status, n)| StatusCount::new(batch_id, status, n))
             .collect();
         Ok(UploadOverview { batches: state::upload_batches(&conn)?, counts })
     })

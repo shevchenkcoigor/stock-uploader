@@ -18,7 +18,7 @@ fn batch_size() -> usize {
 }
 
 /// Runs a change against the database on a worker thread: guarded and backed up before and after.
-async fn mutate<T: Send + 'static>(work: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static) -> AppResult<T> {
+pub(crate) async fn mutate<T: Send + 'static>(work: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static) -> AppResult<T> {
     tauri::async_runtime::spawn_blocking(move || {
         let database = db::db_path();
         if let Some(parent) = database.parent() {

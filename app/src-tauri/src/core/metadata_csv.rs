@@ -292,3 +292,117 @@ mod tests {
         assert!(read_source(&file).is_err());
     }
 }
+
+fn csv_row(item: &Item) -> [String; 5] {
+    // Releases is left empty: AI images normally have no model or property releases.
+    [item.filename.clone(), item.title.clone(), item.keywords.join(", "), item.category.clone(), String::new()]
+}
+
+/// The Adobe CSV as bytes: UTF-8, Adobe's headers, CRLF line ends like Python's `csv.writer`.
+pub fn adobe_csv_bytes(items: &[Item]) -> Result<Vec<u8>, String> {
+    if items.len() > MAX_ROWS {
+        return Err(format!("{} rows, Adobe limit is {MAX_ROWS}", items.len()));
+    }
+    let mut writer = csv::WriterBuilder::new().terminator(csv::Terminator::CRLF).from_writer(Vec::new());
+    writer.write_record(HEADERS).map_err(|error| error.to_string())?;
+    for item in items {
+        writer.write_record(csv_row(item)).map_err(|error| error.to_string())?;
+    }
+    let content = writer.into_inner().map_err(|error| error.to_string())?;
+    if content.len() > MAX_CSV_BYTES {
+        return Err(format!("CSV is {} bytes, Adobe limit is {MAX_CSV_BYTES}", content.len()));
+    }
+    Ok(content)
+}
+
+/// Writes a UTF-8 CSV with Adobe's headers; refuses to write one over the Adobe limits.
+pub fn write_adobe_csv(items: &[Item], destination: &Path) -> Result<(), String> {
+    let content = adobe_csv_bytes(items)?;
+    std::fs::write(destination, content).map_err(|error| format!("{}: {error}", destination.display()))
+}
+
+/// Re-reads a written CSV and checks it against Adobe's rules, as the portal would.
+pub fn validate_csv_file(path: &Path, expected_filenames: &HashSet<String>) -> Vec<String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => return vec![format!("{}: {error}", path.display())],
+    };
+    if bytes.len() > MAX_CSV_BYTES {
+        return vec![format!("file is larger than {MAX_CSV_BYTES} bytes")];
+    }
+    let Ok(text) = String::from_utf8(bytes) else { return vec!["file is not valid UTF-8".to_string()] };
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(text.as_bytes());
+    let rows: Vec<Vec<String>> =
+        reader.records().filter_map(Result::ok).map(|record| record.iter().map(str::to_string).collect()).collect();
+    let mut problems = Vec::new();
+    let headers_ok = rows.first().is_some_and(|first| first.iter().map(String::as_str).eq(HEADERS));
+    if !headers_ok {
+        let shown = rows.first().map_or_else(|| "[]".to_string(), |first| py_repr_list(first));
+        let wanted = py_repr_list(&HEADERS.map(str::to_string));
+        problems.push(format!("headers {shown} differ from {wanted}"));
+    }
+    let data = rows.get(1..).unwrap_or(&[]);
+    if data.len() > MAX_ROWS {
+        problems.push(format!("{} rows, limit is {MAX_ROWS}", data.len()));
+    }
+    if data.iter().any(|row| row.len() != HEADERS.len()) {
+        problems.push("some rows do not have exactly 5 columns".to_string());
+    }
+    if data.iter().any(|row| row.len() > 1 && row[1].chars().count() > MAX_TITLE_CHARS) {
+        problems.push(format!("some titles are longer than {MAX_TITLE_CHARS} characters"));
+    }
+    let names: Vec<&String> = data.iter().filter_map(|row| row.first()).collect();
+    if names.iter().collect::<HashSet<_>>().len() != names.len() {
+        problems.push("duplicate filenames".to_string());
+    }
+    let seen: HashSet<String> = names.into_iter().cloned().collect();
+    if &seen != expected_filenames {
+        problems.push("filenames differ from the files that were uploaded".to_string());
+    }
+    problems
+}
+
+/// Python's `repr()` of a list of strings: `['a', 'b']`.
+fn py_repr_list(items: &[String]) -> String {
+    format!("[{}]", items.iter().map(|item| py_repr(item)).collect::<Vec<_>>().join(", "))
+}
+
+#[cfg(test)]
+mod csv_writing_tests {
+    use super::*;
+
+    fn item(name: &str, title: &str, keywords: &[&str]) -> Item {
+        Item {
+            filename: name.into(),
+            title: title.into(),
+            keywords: keywords.iter().map(|word| word.to_string()).collect(),
+            category: "7".into(),
+        }
+    }
+
+    #[test]
+    fn the_csv_is_crlf_utf8_and_quotes_only_when_needed() {
+        let bytes = adobe_csv_bytes(&[item("a.jpg", "A \"fox\", red", &["fox", "кот"])]).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert_eq!(text, "Filename,Title,Keywords,Category,Releases\r\na.jpg,\"A \"\"fox\"\", red\",\"fox, кот\",7,\r\n");
+    }
+
+    #[test]
+    fn a_written_csv_validates_and_problems_are_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("m.csv");
+        let items = [item("a.jpg", "A", &["x"]), item("b.jpg", "B", &["y"])];
+        write_adobe_csv(&items, &path).unwrap();
+        let names: HashSet<String> = ["a.jpg", "b.jpg"].map(String::from).into();
+        assert!(validate_csv_file(&path, &names).is_empty());
+
+        let missing: HashSet<String> = ["a.jpg"].map(String::from).into();
+        assert_eq!(validate_csv_file(&path, &missing), vec!["filenames differ from the files that were uploaded"]);
+
+        std::fs::write(&path, "Name,Title\r\na.jpg,A\r\na.jpg,B\r\n").unwrap();
+        let problems = validate_csv_file(&path, &missing);
+        assert!(problems[0].starts_with("headers ['Name', 'Title'] differ from ['Filename'"), "{problems:?}");
+        assert!(problems.contains(&"some rows do not have exactly 5 columns".to_string()));
+        assert!(problems.contains(&"duplicate filenames".to_string()));
+    }
+}

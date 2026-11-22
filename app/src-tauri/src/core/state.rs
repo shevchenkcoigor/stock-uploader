@@ -760,3 +760,49 @@ pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
     )?;
     Ok(())
 }
+
+/// Uploaded, not yet submitted files of a batch: exactly what the portal CSV may cover.
+pub fn batch_items(conn: &Connection, batch_id: i64) -> AppResult<Vec<Item>> {
+    let mut stmt = conn.prepare(
+        "SELECT filename, title, keywords, category FROM files WHERE batch_id = ? AND status = ? ORDER BY id",
+    )?;
+    let rows = stmt.query_map(params![batch_id, UPLOADED], |row| {
+        Ok(Item {
+            filename: row.get(0)?,
+            title: row.get(1)?,
+            keywords: parse_keywords(&row.get::<_, String>(2)?),
+            category: row.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+pub fn recorded_csv_path(conn: &Connection, batch_id: i64) -> AppResult<Option<PathBuf>> {
+    let path: Option<Option<String>> =
+        conn.query_row("SELECT csv_path FROM batches WHERE id = ?", [batch_id], |row| row.get(0)).optional()?;
+    Ok(path.flatten().filter(|text| !text.is_empty()).map(PathBuf::from))
+}
+
+pub fn record_csv(conn: &Connection, batch_id: i64, csv_path: &Path) -> AppResult<()> {
+    conn.execute("UPDATE batches SET csv_path = ? WHERE id = ?", params![csv_path.to_string_lossy(), batch_id])?;
+    Ok(())
+}
+
+/// Marks the uploaded files of a batch as submitted; returns how many.
+pub fn mark_batch_submitted(conn: &Connection, batch_id: i64) -> AppResult<usize> {
+    Ok(conn.execute(
+        "UPDATE files SET status = ?, updated_at = ? WHERE batch_id = ? AND status = ?",
+        params![SUBMITTED, now(), batch_id, UPLOADED],
+    )?)
+}
+
+/// Per-file facts for the portal checkboxes: (filename, people visible, content type).
+pub fn portal_notes(conn: &Connection, batch_id: i64) -> AppResult<Vec<(String, bool, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT filename, people_visible, content_type FROM files WHERE batch_id = ? AND status = ? ORDER BY id",
+    )?;
+    let rows = stmt.query_map(params![batch_id, UPLOADED], |row| {
+        Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
