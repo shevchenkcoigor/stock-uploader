@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), uploads over SFTP, and builds the metadata CSV. Portal steps (Upload CSV, submit for review) stay manual because Adobe has no API. Front ends: a CLI (`adobe`) and the Tauri desktop app in `app/` (Rust core + React UI; it replaced the PySide6 app, issue #15). `README.md` (in Russian) is the detailed user-facing reference for commands, statuses, settings and Adobe AI-content rules; read it before changing behavior.
+Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), uploads over SFTP, and builds the metadata CSV. Portal steps (Upload CSV, submit for review) stay manual because Adobe has no API. The main product is the Tauri desktop app in `app/` (Rust core + React UI; it replaced the PySide6 app, issue #15). The Python package `adobe_stock/` remains as the `adobe` CLI and as the reference implementation the Rust core is checked against for parity. `README.md` (in Russian) is the detailed user-facing reference for commands, statuses, settings and Adobe AI-content rules; read it before changing behavior.
 
 ## Commands
 
@@ -17,7 +17,11 @@ ruff check --fix && ruff format    # line length 110
 basedpyright                       # "standard" mode, uses .venv
 ./install.sh                       # build the Tauri desktop app (npm ci + tauri build; host OS only)
 cd app && npm run lint && npm test && npm run build   # frontend checks
+cd app && npm run tauri -- dev     # run the desktop app in dev mode (Vite + Rust)
+cd app && npx vitest run src/path/to/file.test.tsx     # single frontend test
 cd app/src-tauri && cargo test     # Rust core tests
+cd app/src-tauri && cargo test core::state::           # single Rust test module/filter
+cd app/src-tauri && cargo clippy && cargo fmt --check  # Rust lint/format
 ```
 
 Pre-commit (`pre-commit install` once) runs ruff check --fix, ruff format, basedpyright and the full pytest on every commit, using `.venv/bin/…`; a failing hook blocks the commit, and ruff autofixes must be re-staged.
@@ -34,7 +38,11 @@ Pipeline: `scan → caption → (review/approve) → csv → upload → [portal,
 - `adobe_stock/settings.py` — pydantic-settings `Settings`, env `ADOBE_*` or `.env`. `sftp_upload.py` — paramiko upload, status written per file so interrupted uploads resume.
 - `app/` — Tauri 2 app: `src-tauri/src/core/` is the Rust port of the core (same `state.db` schema, byte-identical CSV), `*_cmd.rs` are Tauri commands, `src/pages/` the React pages. Parity with Python is checked by running both on a copy of the DB.
 
-Because `services.py` is shared, new pipeline logic goes there (not in `cli.py` or a page) and takes callbacks instead of doing I/O.
+### Where to make a change
+
+- **Desktop app (primary):** pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progress via callbacks). `*_cmd.rs` stay thin: parse args, call `core`, emit events. React pages in `app/src/pages/` only render state and invoke commands; they hold no pipeline logic.
+- **Python CLI:** new pipeline logic goes in `services.py` (not in `cli.py`), taking callbacks instead of doing I/O.
+- **Shared behavior** (statuses, CSV format, validation rules, `state.db` schema): change both implementations and confirm parity by running both on a copy of the DB; the CSV must stay byte-identical.
 
 ## Conventions and gotchas
 
