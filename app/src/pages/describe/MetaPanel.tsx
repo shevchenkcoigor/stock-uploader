@@ -105,7 +105,7 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col rounded-lg border border-line bg-surface p-4">
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 [&>*]:shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Метаданные</h2>
           {row && <StatusChip status={row.status} />}
