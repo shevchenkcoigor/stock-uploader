@@ -2,11 +2,9 @@
 //! each file, so an interrupted run resumes where it stopped.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-
 use rusqlite::Connection;
 
-use super::csv_batches::{csv_readiness, readiness_text, CsvReadiness};
+use super::export::{export_readiness, readiness_text, ExportReadiness};
 use super::sftp::Uploader;
 use super::state;
 use crate::error::AppResult;
@@ -20,7 +18,7 @@ pub struct UploadReport {
     pub failed: Vec<String>,
     /// The whole run could not start or was cut off (DNS, login, ...).
     pub error: Option<String>,
-    /// Why nothing was sent: the batch has no up-to-date CSV yet.
+    /// Why nothing was sent: the batch has no up-to-date copies with embedded metadata yet.
     pub blocked: Option<String>,
     pub stopped: bool,
 }
@@ -51,8 +49,8 @@ pub fn upload_batch(
     if files.is_empty() {
         return Ok(report);
     }
-    let readiness = csv_readiness(conn, batch)?;
-    if readiness != CsvReadiness::Ready {
+    let readiness = export_readiness(conn, batch)?;
+    if readiness != ExportReadiness::Ready {
         let reason = readiness_text(batch, readiness);
         state::log_event(conn, "upload", &format!("batch {batch}: refused, {reason}"), "warning", None)?;
         report.blocked = Some(reason);
@@ -65,12 +63,13 @@ pub fn upload_batch(
     };
     let mut errors: HashMap<String, String> = HashMap::new();
     let mut done = 0;
-    for (path, name) in &files {
+    for file in &files {
+        let name = &file.name;
         if should_stop() {
             report.stopped = true;
             break;
         }
-        let size = std::fs::metadata(path).map_or(0, |meta| meta.len());
+        let size = std::fs::metadata(&file.export).map_or(0, |meta| meta.len());
         let progress = |message: String, sent: u64, done: usize| UploadProgress {
             done,
             total,
@@ -80,17 +79,17 @@ pub fn upload_batch(
             size,
         };
         on_progress(progress(format!("uploading {name}"), 0, done));
-        let outcome = uploader.put(path, name, &mut |sent| on_progress(progress(format!("uploading {name}"), sent, done)));
+        let outcome = uploader.put(&file.export, name, &mut |sent| on_progress(progress(format!("uploading {name}"), sent, done)));
         done += 1;
         match outcome {
             Ok(()) => {
-                state::mark_uploaded(conn, path)?;
-                state::log_event(conn, "upload", &format!("uploaded as {name}"), "info", Some(&file_name(path)))?;
+                state::mark_uploaded(conn, &file.source)?;
+                state::log_event(conn, "upload", &format!("uploaded as {name}"), "info", Some(name))?;
                 report.uploaded += 1;
                 on_progress(progress(format!("uploaded {name}"), size, done));
             }
             Err(error) => {
-                state::record_error(conn, path, &error)?;
+                state::record_error(conn, &file.source, &error)?;
                 errors.insert(name.clone(), error.clone());
                 report.failed.push(name.clone());
                 on_progress(progress(format!("FAILED {name}: {error}"), 0, done));
@@ -117,10 +116,6 @@ pub fn upload_batch(
     Ok(report)
 }
 
-fn file_name(path: &PathBuf) -> String {
-    path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
 /// DNS, network or login problems end the whole run; the files stay pending.
 fn fail_run(conn: &Connection, mut report: UploadReport, batch: i64, error: &str) -> AppResult<UploadReport> {
     let message = format!("cannot upload batch {batch}: {error}");
@@ -132,6 +127,8 @@ fn fail_run(conn: &Connection, mut report: UploadReport, batch: i64, error: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::export::prepare_batch;
+    use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
     use std::path::Path;
 
     struct Fake {
@@ -140,7 +137,8 @@ mod tests {
     }
 
     impl Uploader for Fake {
-        fn put(&mut self, _local: &Path, remote: &str, on_bytes: &mut dyn FnMut(u64)) -> Result<(), String> {
+        fn put(&mut self, local: &Path, remote: &str, on_bytes: &mut dyn FnMut(u64)) -> Result<(), String> {
+            assert!(local.to_string_lossy().contains("export"), "uploads the prepared copy, not {local:?}");
             if self.fail_on == Some(remote) {
                 return Err("Permission denied".to_string());
             }
@@ -156,7 +154,8 @@ mod tests {
         conn.execute("INSERT INTO batches (folder, part, created_at) VALUES ('/r', 1, 't')", []).unwrap();
         for index in 0..count {
             let path = dir.path().join(format!("p{index}.jpg"));
-            std::fs::write(&path, b"12345").unwrap();
+            let file = std::fs::File::create(&path).unwrap();
+            JpegEncoder::new(std::io::BufWriter::new(file)).encode(&vec![index as u8; 16 * 16 * 3], 16, 16, ExtendedColorType::Rgb8).unwrap();
             conn.execute(
                 "INSERT INTO files (path, filename, size, sha256, root, status, batch_id, title, keywords, category, updated_at)
                  VALUES (?, ?, 5, ?, '/r', 'pending', 1, ?, '[\"k\"]', '1', 't')",
@@ -169,8 +168,9 @@ mod tests {
             )
             .unwrap();
         }
-        // the CSV comes first: a batch is uploaded only once its CSV is built
-        let report = crate::core::csv_build::build_csv(&conn, 1, &dir.path().join("csv"), "Generative AI").unwrap();
+        // copies come first: a batch is uploaded only once its pictures carry their metadata
+        let report =
+            prepare_batch(&conn, 1, &dir.path().join("export"), "Generative AI", &mut |_, _, _| {}, &|| false).unwrap();
         assert!(report.problems.is_empty(), "{:?}", report.problems);
         (dir, conn)
     }
@@ -201,20 +201,20 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_without_a_current_csv_is_not_uploaded() {
+    fn a_batch_without_current_copies_is_not_uploaded() {
         let (_dir, conn) = setup(2);
         let never = || -> Result<Box<dyn Uploader>, String> { panic!("must not connect") };
 
-        // a description changed after the CSV was built: the CSV is stale
+        // a title changed after the copies were made: they are stale
         conn.execute("UPDATE files SET title = 'Edited later Generative AI' WHERE filename = 'p0.jpg'", []).unwrap();
         let stale = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
-        assert!(stale.blocked.as_deref().unwrap().contains("устарел"), "{stale:?}");
+        assert_eq!(stale.blocked, Some(readiness_text(1, ExportReadiness::Stale)));
         assert_eq!(stale.uploaded, 0);
 
-        // no CSV at all
-        conn.execute("UPDATE batches SET csv_path = NULL", []).unwrap();
+        // no copies at all
+        conn.execute("UPDATE files SET embedded_hash = '', export_path = ''", []).unwrap();
         let missing = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
-        assert_eq!(missing.blocked.as_deref(), Some("У батча 1 нет CSV: сначала соберите его на странице «CSV»."));
+        assert_eq!(missing.blocked, Some(readiness_text(1, ExportReadiness::Missing)));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
         let last: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
         assert!(last.starts_with("batch 1: refused, "), "{last}");

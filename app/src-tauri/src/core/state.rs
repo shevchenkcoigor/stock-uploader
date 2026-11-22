@@ -112,6 +112,9 @@ fn add_missing_columns(conn: &Connection) -> AppResult<()> {
         ("root", "TEXT NOT NULL DEFAULT ''"),
         ("people_visible", "INTEGER NOT NULL DEFAULT 0"),
         ("content_type", "TEXT NOT NULL DEFAULT ''"),
+        // the prepared copy that is uploaded, and a fingerprint of the metadata embedded in it
+        ("export_path", "TEXT NOT NULL DEFAULT ''"),
+        ("embedded_hash", "TEXT NOT NULL DEFAULT ''"),
     ];
     for (name, ddl) in additions {
         if !columns.iter().any(|column| column == name) {
@@ -747,9 +750,24 @@ pub fn batch_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<QueueFile>
 }
 
 /// Pending files of a batch as (local path, remote name).
-pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<(PathBuf, String)>> {
-    let mut stmt = conn.prepare("SELECT path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
-    let rows = stmt.query_map(params![PENDING, batch_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), row.get(1)?)))?;
+/// A file waiting for upload: the original, the prepared copy that goes out, and its flat SFTP name.
+#[derive(Debug, PartialEq, Eq)]
+pub struct UploadFile {
+    pub source: PathBuf,
+    pub export: PathBuf,
+    pub name: String,
+}
+
+pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<UploadFile>> {
+    let mut stmt =
+        conn.prepare("SELECT path, export_path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
+    let rows = stmt.query_map(params![PENDING, batch_id], |row| {
+        Ok(UploadFile {
+            source: PathBuf::from(row.get::<_, String>(0)?),
+            export: PathBuf::from(row.get::<_, String>(1)?),
+            name: row.get(2)?,
+        })
+    })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 

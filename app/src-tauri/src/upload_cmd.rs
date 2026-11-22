@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::core::csv_batches::{csv_readiness, readiness_text, CsvReadiness};
+use crate::core::export::{export_readiness, readiness_text, ExportReadiness};
 use crate::core::sftp::{self, Login, Uploader};
 use crate::core::upload::{self, UploadReport};
 use crate::core::{backup, state};
@@ -39,7 +39,7 @@ impl StatusCount {
 pub struct UploadOverview {
     batches: Vec<state::PendingBatch>,
     counts: Vec<StatusCount>,
-    /// Whether each batch has an up-to-date CSV: without one it cannot be uploaded.
+    /// Whether each batch has up-to-date prepared copies: without them it cannot be uploaded.
     csv: Vec<BatchCsv>,
 }
 
@@ -47,7 +47,7 @@ pub struct UploadOverview {
 #[serde(rename_all = "camelCase")]
 pub struct BatchCsv {
     batch_id: i64,
-    readiness: CsvReadiness,
+    readiness: ExportReadiness,
     /// Why the batch cannot be uploaded; empty when it can.
     reason: String,
     /// File name of the batch's CSV, for the portal hint.
@@ -70,11 +70,13 @@ pub async fn upload_overview() -> AppResult<UploadOverview> {
         let csv = batches
             .iter()
             .map(|batch| {
-                let readiness = csv_readiness(&conn, batch.batch_id)?;
-                let csv_name = state::recorded_csv_path(&conn, batch.batch_id)?
-                    .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
-                    .unwrap_or_default();
-                Ok(BatchCsv { batch_id: batch.batch_id, readiness, reason: readiness_text(batch.batch_id, readiness), csv_name })
+                let readiness = export_readiness(&conn, batch.batch_id)?;
+                Ok(BatchCsv {
+                    batch_id: batch.batch_id,
+                    readiness,
+                    reason: readiness_text(batch.batch_id, readiness),
+                    csv_name: String::new(),
+                })
             })
             .collect::<AppResult<Vec<_>>>()?;
         Ok(UploadOverview { batches, counts, csv })
