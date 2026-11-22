@@ -118,6 +118,30 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
           <h2 className="text-base font-semibold">Метаданные</h2>
           {row && <StatusChip status={row.status} />}
         </div>
+        <div className="flex gap-2">
+          <select
+            value={caption.model}
+            aria-label="Модель Claude"
+            disabled={disabled || caption.running}
+            onChange={(event) => caption.onModel(event.target.value)}
+            className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {caption.models.map(({ id, note }) => (
+              <option key={id} value={id} title={`${id} — ${note}`}>
+                {modelTitle(id)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!canCaption || caption.running || !caption.model}
+            title={canCaption ? 'Подписать этот файл заново' : 'Отправленный файл не подписывают'}
+            onClick={() => row && caption.onRun(row)}
+            className="h-9 shrink-0 rounded-md bg-accent px-3 text-sm font-medium text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {caption.running ? 'Подписываю…' : '✦ Caption'}
+          </button>
+        </div>
         {row ? <Preview key={row.path} path={row.path} /> : <div style={{ height: PREVIEW_HEIGHT }} className="flex items-center justify-center rounded-md border border-line bg-sunken text-sm text-ink-muted">Выберите файл</div>}
         <p className="truncate font-mono text-xs" title={row?.filename}>
           {row?.filename}
@@ -157,30 +181,6 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
             </option>
           ))}
         </select>
-        <div className="flex gap-2">
-          <select
-            value={caption.model}
-            aria-label="Модель Claude"
-            disabled={disabled || caption.running}
-            onChange={(event) => caption.onModel(event.target.value)}
-            className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-          >
-            {caption.models.map(({ id, note }) => (
-              <option key={id} value={id} title={`${id} — ${note}`}>
-                {modelTitle(id)}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={!canCaption || caption.running || !caption.model}
-            title={canCaption ? 'Подписать этот файл заново' : 'Отправленный файл не подписывают'}
-            onClick={() => row && caption.onRun(row)}
-            className="h-9 shrink-0 rounded-md bg-accent px-3 text-sm font-medium text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-          >
-            {caption.running ? 'Подписываю…' : '✦ Caption'}
-          </button>
-        </div>
         {row?.status === 'review' && (
           <button
             type="button"
