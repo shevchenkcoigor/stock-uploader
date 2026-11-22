@@ -347,8 +347,7 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 про портал и кнопка «Отметить отправленным». Долгие операции идут в фоне с полосой прогресса и кнопкой
 паузы/отмены. Окно и консоль работают с одной базой `state.db`, использовать можно и то и другое.
 
-Приложение: Rust + Tauri 2 + React + TypeScript (папка `app/`). Старое окно на PySide6 (`adobe-gui`)
-пока остаётся в репозитории и будет удалено.
+Приложение: Rust + Tauri 2 + React + TypeScript (папка `app/`). Старое окно на PySide6 удалено; консоль (`adobe`) осталась.
 
 ```bash
 ./install.sh                 # macOS / Linux: npm ci + tauri build

@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), uploads over SFTP, and builds the metadata CSV. Portal steps (Upload CSV, submit for review) stay manual because Adobe has no API. Front ends: a CLI (`adobe`), the Tauri desktop app in `app/` (Rust core + React UI) and the legacy PySide6 app (`adobe-gui`, to be removed, issue #15). `README.md` (in Russian) is the detailed user-facing reference for commands, statuses, settings and Adobe AI-content rules; read it before changing behavior.
+Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), uploads over SFTP, and builds the metadata CSV. Portal steps (Upload CSV, submit for review) stay manual because Adobe has no API. Front ends: a CLI (`adobe`) and the Tauri desktop app in `app/` (Rust core + React UI; it replaced the PySide6 app, issue #15). `README.md` (in Russian) is the detailed user-facing reference for commands, statuses, settings and Adobe AI-content rules; read it before changing behavior.
 
 ## Commands
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"            # dev extra includes PySide6, keyring, pytest, ruff, basedpyright, pre-commit
+pip install -e ".[dev]"            # dev extra includes pytest, ruff, basedpyright, pre-commit
 pytest -q                          # all tests
 pytest tests/test_state.py::test_name -q   # single test
 ruff check --fix && ruff format    # line length 110
@@ -18,7 +18,6 @@ basedpyright                       # "standard" mode, uses .venv
 ./install.sh                       # build the Tauri desktop app (npm ci + tauri build; host OS only)
 cd app && npm run lint && npm test && npm run build   # frontend checks
 cd app/src-tauri && cargo test     # Rust core tests
-python packaging/build.py          # legacy PySide6 build (PyInstaller)
 ```
 
 Pre-commit (`pre-commit install` once) runs ruff check --fix, ruff format, basedpyright and the full pytest on every commit, using `.venv/bin/…`; a failing hook blocks the commit, and ruff autofixes must be re-staged.
@@ -34,13 +33,12 @@ Pipeline: `scan → caption → (review/approve) → csv → upload → [portal,
 - `adobe_stock/metadata_csv.py`, `csv_batches.py` — item validation (keyword/title rules), Adobe CSV writing and re-validation, batch splitting, `with_ai_label` (appends the "Generative AI" title suffix when captioning, so DB titles already carry it and the CSV writes them as stored; `adobe label-titles` backfills older titles).
 - `adobe_stock/settings.py` — pydantic-settings `Settings`, env `ADOBE_*` or `.env`. `sftp_upload.py` — paramiko upload, status written per file so interrupted uploads resume.
 - `app/` — Tauri 2 app: `src-tauri/src/core/` is the Rust port of the core (same `state.db` schema, byte-identical CSV), `*_cmd.rs` are Tauri commands, `src/pages/` the React pages. Parity with Python is checked by running both on a copy of the DB.
-- `adobe_stock/gui/` — legacy PySide6 app. `AppContext` (`context.py`) gives pages preferences plus `job()` (wraps work for a worker thread with its own DB connection and `services.protected`) and `read()` (UI-thread read-only query). Long operations subclass `TaskPage` and run in a `worker.Task` QThread with progress/cancel. GUI keeps its own DB path/SFTP prefs (`prefs.py`; password in keyring), so it can point at a different `state.db` than the CLI.
 
 Because `services.py` is shared, new pipeline logic goes there (not in `cli.py` or a page) and takes callbacks instead of doing I/O.
 
 ## Conventions and gotchas
 
-- Python ≥3.12, fully typed (basedpyright standard). Tests use an isolated environment fixture in `tests/conftest.py`; GUI tests are in `tests/test_gui.py`.
+- Python ≥3.12, fully typed (basedpyright standard). Tests use an isolated environment fixture in `tests/conftest.py`.
 - Never overwrite or delete the real `state.db` (also holds the log); for demos use a separate DB and ini (`packaging/seed_demo.py`).
 - Files are never copied or moved by the tool; the DB stores absolute paths, so renaming scanned files before upload breaks things.
 - Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout. Merge back to `main` when done.
