@@ -41,7 +41,13 @@ Because `services.py` is shared, new pipeline logic goes there (not in `cli.py` 
 - Python ≥3.12, fully typed (basedpyright standard). Tests use an isolated environment fixture in `tests/conftest.py`.
 - Never overwrite or delete the real `state.db` (also holds the log); for demos use a separate DB and ini (`packaging/seed_demo.py`).
 - Files are never copied or moved by the tool; the DB stores absolute paths, so renaming scanned files before upload breaks things.
-- Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout. Merge back to `main` when done.
+- Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout.
+- **`main` is changed only through a pull request.** Never commit, merge or push to `main` directly (`git push origin main`, local `git merge` into `main`, force-pushes). GitHub cannot enforce this for a private repo on the free plan, so it is enforced by `.claude/settings.json` deny rules and the `.githooks/pre-push` hook (enable once: `git config core.hooksPath .githooks`). When work is done, do these steps without waiting to be asked:
+  1. Commit in the worktree branch (`refs #N`).
+  2. `git push -u origin <branch>`.
+  3. `gh pr create` into `main`; the body references the issue (`Closes #N`).
+  4. Automerge: the `automerge` job in `build.yml` merges the PR once lint, tests, app checks and builds on every OS are green. If CI is red, fix the branch and push again; never merge by hand or bypass CI.
+  5. After the merge, remove the worktree and the local branch.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
-- CI (`.github/workflows/build.yml`) runs lint/types/tests, then builds the desktop app.
+- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): lint/types/tests, app checks, builds on every OS, then the `automerge` job merges the PR into `main`.
 - After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).
