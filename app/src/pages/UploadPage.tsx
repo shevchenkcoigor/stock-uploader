@@ -3,13 +3,23 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pager } from '../components/Pager'
 import { Thumb } from '../components/Thumb'
-import { csvApi, filesApi, uploadApi, type PendingBatch, type QueueFile, type UploadOverview, type UploadProgress } from '../lib/api'
+import {
+  csvApi,
+  filesApi,
+  uploadApi,
+  type PendingBatch,
+  type PrepareProgress,
+  type QueueFile,
+  type UploadOverview,
+  type UploadProgress,
+} from '../lib/api'
 import { formatSize } from '../lib/describe'
 import { DATA_CHANGED_EVENT } from '../lib/events'
 import {
   STATE_VIEWS,
   batchStatusText,
   fractionOf,
+  prepareTrouble,
   progressText,
   rowsFromQueue,
   sortedRows,
@@ -49,8 +59,8 @@ function Bar({ fraction, label }: { fraction: number; label: string }) {
   )
 }
 
-export function UploadPage({ active, navigate }: PageProps) {
-  const [overview, setOverview] = useState<UploadOverview>({ batches: [], counts: [], csv: [] })
+export function UploadPage({ active }: PageProps) {
+  const [overview, setOverview] = useState<UploadOverview>({ batches: [], counts: [] })
   const [batch, setBatch] = useState<number | null>(null)
   const [files, setFiles] = useState<QueueFile[]>([])
   const [running, setRunning] = useState(false)
@@ -105,12 +115,26 @@ export function UploadPage({ active, navigate }: PageProps) {
     return () => void unlisten.then((stop) => stop())
   }, [say])
 
+  useEffect(() => {
+    const unlisten = listen<PrepareProgress>('prepare-progress', ({ payload }) => {
+      if (payload.file) say(`Готовлю ${payload.file}: ${payload.done + 1} из ${payload.total}`)
+    })
+    return () => void unlisten.then((stop) => stop())
+  }, [say])
+
+  // the copies with the title and keywords embedded are made first (a no-op when they are current), then sent
   const run = async () => {
     if (batch === null || running) return
     setRunning(true)
     setCurrent(null)
-    say(KEYCHAIN_NOTICE)
     try {
+      say('Готовлю файлы: вшиваю название и ключевые слова…')
+      const trouble = prepareTrouble(await uploadApi.prepare(batch))
+      if (trouble) {
+        say(trouble, true)
+        return
+      }
+      say(KEYCHAIN_NOTICE)
       const report = await uploadApi.start(batch)
       if (report.blocked) {
         say(report.blocked, true)
@@ -134,7 +158,7 @@ export function UploadPage({ active, navigate }: PageProps) {
   const markSubmitted = async () => {
     if (batch === null) return
     const agreed = await ask(
-      `Вы уже загрузили CSV батча ${batch} в портале и отправили файлы на проверку?\nБатч будет помечен как отправленный.`,
+      `Вы уже выбрали категории в портале и отправили файлы батча ${batch} на проверку?\nБатч будет помечен как отправленный.`,
       { title: 'Отметить отправленным', kind: 'warning' },
     )
     if (!agreed) return
@@ -158,9 +182,6 @@ export function UploadPage({ active, navigate }: PageProps) {
   const shownPage = Math.min(page, Math.max(0, Math.ceil(ordered.length / PAGE_SIZE) - 1))
   const visible = ordered.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)
   const waiting = totals.done < totals.total
-  // the CSV is built first: a batch is uploaded only while its CSV is up to date
-  const csvName = overview.csv.find((item) => item.batchId === batch)?.csvName ?? ''
-  const csvBlock = overview.csv.find((item) => item.batchId === batch && item.readiness !== 'ready')?.reason ?? ''
 
   const sortBy = (field: UploadSort) => {
     setSort((now) => ({ field, descending: now.field === field && !now.descending }))
@@ -196,7 +217,7 @@ export function UploadPage({ active, navigate }: PageProps) {
             <h2 className="text-base font-semibold">Очередь загрузки</h2>
             <p className="text-sm text-ink-muted">{ordered.length > 0 ? summaryText(totals) : 'В очереди пусто'}</p>
           </div>
-          <button type="button" className={secondary} disabled={running || totals.failed === 0 || csvBlock !== ''} onClick={() => void run()}>
+          <button type="button" className={secondary} disabled={running || totals.failed === 0} onClick={() => void run()}>
             Повторить ошибки
           </button>
           <button type="button" className={secondary} disabled={!running} onClick={() => void uploadApi.pause()}>
@@ -204,7 +225,7 @@ export function UploadPage({ active, navigate }: PageProps) {
           </button>
           <button
             type="button"
-            disabled={running || !waiting || batch === null || csvBlock !== ''}
+            disabled={running || !waiting || batch === null}
             onClick={() => void run()}
             className="h-8 rounded-md bg-accent px-4 text-sm font-medium text-accent-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
           >
@@ -213,8 +234,8 @@ export function UploadPage({ active, navigate }: PageProps) {
           <button
             type="button"
             className={secondary}
-            disabled={running || waiting || batch === null || ordered.length === 0 || csvBlock !== ''}
-            title="Когда CSV загружен в портале и файлы отправлены на проверку"
+            disabled={running || waiting || batch === null || ordered.length === 0}
+            title="Когда категории выбраны в портале и файлы отправлены на проверку"
             onClick={() => void markSubmitted()}
           >
             Отметить отправленным
@@ -281,19 +302,12 @@ export function UploadPage({ active, navigate }: PageProps) {
           </table>
         </div>
 
-        {csvBlock && !running && waiting && (
-          <div className="flex items-center gap-3 rounded-md bg-sunken px-3 py-2 text-sm">
-            <p className="flex-1 text-warning">{csvBlock}</p>
-            <button type="button" className={secondary} onClick={() => navigate('csv')}>
-              К CSV →
-            </button>
-          </div>
-        )}
         <Pager total={ordered.length} pageSize={PAGE_SIZE} page={shownPage} onPage={setPage} />
-        {!waiting && ordered.length > 0 && csvBlock === '' && !running && (
+        {!waiting && ordered.length > 0 && !running && (
           <p className="rounded-md bg-sunken px-3 py-2 text-sm">
-            Все файлы на SFTP. Дальше в портале Adobe Stock: Uploaded Files → New → Upload CSV
-            {csvName ? ` (файл ${csvName})` : ''}, галочки по чеклисту; затем нажмите «Отметить отправленным».
+            Все файлы на SFTP. Название и ключевые слова уже вшиты в файлы. Дальше в портале Adobe Stock: Uploaded Files →
+            категория, «Created using generative AI tools» для всех файлов и «People and Property are fictional» там, где есть
+            люди; отправьте на проверку и нажмите «Отметить отправленным».
           </p>
         )}
         <div className="flex items-center gap-3">

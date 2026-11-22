@@ -17,6 +17,11 @@ pub fn db_path() -> PathBuf {
     prefs::db_path_override().unwrap_or_else(|| prefs::legacy_data_dir().join(DB_FILE_NAME))
 }
 
+/// Where the prepared copies of the pictures are written: next to the database.
+pub fn export_dir() -> PathBuf {
+    db_path().parent().map_or_else(|| PathBuf::from("export"), |dir| dir.join("export"))
+}
+
 /// Opens the database read-only; `None` when it does not exist yet (an empty app).
 pub fn open_read_only() -> AppResult<Option<Connection>> {
     let path = db_path();

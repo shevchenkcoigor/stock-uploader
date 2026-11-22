@@ -118,20 +118,9 @@ export interface PendingBatch {
   n: number
 }
 
-export interface BatchCsv {
-  batchId: number
-  readiness: 'ready' | 'missing' | 'stale'
-  /** Why the batch cannot be uploaded; empty when it can. */
-  reason: string
-  /** File name of the batch's CSV, for the portal hint. */
-  csvName: string
-}
-
 export interface UploadOverview {
   batches: PendingBatch[]
   counts: Array<{ batchId: number; status: string; n: number }>
-  /** Without an up-to-date CSV a batch is not uploaded. */
-  csv: BatchCsv[]
 }
 
 export interface QueueFile {
@@ -148,7 +137,7 @@ export interface UploadReport {
   uploaded: number
   failed: string[]
   error: string | null
-  /** Why nothing was sent: the batch has no up-to-date CSV yet. */
+  /** Why nothing was sent: the batch has no up-to-date prepared copies yet. */
   blocked: string | null
   stopped: boolean
 }
@@ -162,9 +151,31 @@ export interface UploadProgress {
   size: number
 }
 
+/** What preparing a batch (copies with the title and keywords embedded) did. */
+export interface PrepareReport {
+  batch: number
+  total: number
+  /** Copies written now. */
+  prepared: number
+  /** Copies that were already up to date. */
+  current: number
+  /** Metadata Adobe would not accept; nothing is written while there are any. */
+  problems: string[]
+  /** Files whose copy could not be written. */
+  failed: string[]
+  stopped: boolean
+}
+
+export interface PrepareProgress {
+  done: number
+  total: number
+  file: string
+}
+
 export const uploadApi = {
   overview: () => invoke<UploadOverview>('upload_overview'),
   queue: (batch: number) => invoke<QueueFile[]>('upload_queue', { batch }),
+  prepare: (batch: number) => invoke<PrepareReport>('upload_prepare', { batch }),
   start: (batch: number) => invoke<UploadReport>('upload_start', { batch }),
   pause: () => invoke<void>('upload_pause'),
 }

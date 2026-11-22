@@ -40,6 +40,7 @@ pub fn run() {
             csv_cmd::csv_mark_submitted,
             upload_cmd::upload_overview,
             upload_cmd::upload_queue,
+            upload_cmd::upload_prepare,
             upload_cmd::upload_start,
             upload_cmd::upload_pause,
             caption_cmd::caption_models,
