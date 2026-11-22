@@ -8,15 +8,16 @@ use std::time::SystemTime;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use super::metadata_csv::{check_items, missing_category_problems, Item};
+use super::metadata_csv::{adobe_csv_bytes, check_items, missing_category_problems, Item};
 use super::state::{self, INVALID, UPLOADED};
 use crate::error::AppResult;
 
 pub const BUILT: &str = "built";
 pub const SENT: &str = "sent";
 pub const ERROR: &str = "error";
-/// Files a batch's CSV covers: uploaded ones, and submitted ones once the batch is sent.
-const CSV_FILE_STATUSES: [&str; 2] = [state::UPLOADED, state::SUBMITTED];
+/// Files a batch's CSV covers: described ones waiting for upload, uploaded ones, and submitted ones once
+/// the batch is sent.
+const CSV_FILE_STATUSES: [&str; 3] = [state::PENDING, state::UPLOADED, state::SUBMITTED];
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -53,9 +54,9 @@ pub struct CsvRow {
 pub fn csv_rows(conn: &Connection, batch_id: i64) -> AppResult<Vec<CsvRow>> {
     let mut stmt = conn.prepare(
         "SELECT filename, path, title, keywords, category, status FROM files
-         WHERE batch_id = ? AND status IN (?, ?) ORDER BY id",
+         WHERE batch_id = ? AND status IN (?, ?, ?) ORDER BY id",
     )?;
-    let rows = stmt.query_map(params![batch_id, CSV_FILE_STATUSES[0], CSV_FILE_STATUSES[1]], |row| {
+    let rows = stmt.query_map(params![batch_id, CSV_FILE_STATUSES[0], CSV_FILE_STATUSES[1], CSV_FILE_STATUSES[2]], |row| {
         Ok(CsvRow {
             filename: row.get(0)?,
             path: row.get(1)?,
@@ -80,7 +81,8 @@ fn row_has_problem(row: &CsvRow, ai_label: &str) -> bool {
         || !missing_category_problems(&[item]).is_empty()
 }
 
-/// Files of a batch that are not uploaded yet, by status; empty when the whole batch is on SFTP.
+/// Files of a batch that are not on SFTP yet (still pending or earlier), by status; empty when the whole batch
+/// is uploaded.
 /// Invalid files never get into a batch's CSV, so they do not hold the batch back.
 pub fn batch_waiting(conn: &Connection, batch_id: i64) -> AppResult<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(
@@ -88,7 +90,7 @@ pub fn batch_waiting(conn: &Connection, batch_id: i64) -> AppResult<Vec<(String,
          GROUP BY status ORDER BY status",
     )?;
     let rows = stmt
-        .query_map(params![batch_id, CSV_FILE_STATUSES[0], CSV_FILE_STATUSES[1], INVALID], |row| {
+        .query_map(params![batch_id, UPLOADED, state::SUBMITTED, INVALID], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -126,7 +128,7 @@ pub fn csv_entries(conn: &Connection, ai_label: &str) -> AppResult<Vec<CsvEntry>
         }
         let path = PathBuf::from(&csv_path);
         let bad_rows = rows.iter().filter(|row| row_has_problem(row, ai_label)).count();
-        let kind = if !rows.iter().any(|row| row.status == UPLOADED) {
+        let kind = if rows.iter().all(|row| row.status == state::SUBMITTED) {
             SENT
         } else if bad_rows > 0 || !path.exists() {
             ERROR
@@ -151,15 +153,47 @@ pub fn csv_entries(conn: &Connection, ai_label: &str) -> AppResult<Vec<CsvEntry>
     Ok(entries)
 }
 
-/// Batches that have uploaded files but no CSV yet: what «+ CSV» offers.
+/// Batches that have described or uploaded files but no CSV yet: what «+ CSV» offers.
 pub fn batches_without_csv(conn: &Connection) -> AppResult<Vec<state::PendingBatch>> {
     let mut stmt = conn.prepare(
         "SELECT b.id, b.folder, b.part, COUNT(*) FROM batches b
-         JOIN files f ON f.batch_id = b.id AND f.status = ?
+         JOIN files f ON f.batch_id = b.id AND f.status IN (?, ?)
          WHERE b.csv_path IS NULL GROUP BY b.id ORDER BY b.id",
     )?;
-    let rows = stmt.query_map([UPLOADED], |row| {
+    let rows = stmt.query_map([state::PENDING, UPLOADED], |row| {
         Ok(state::PendingBatch { batch_id: row.get(0)?, folder: row.get(1)?, part: row.get(2)?, n: row.get(3)? })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Whether a batch may be uploaded: its CSV must be built and still match the current descriptions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CsvReadiness {
+    Ready,
+    /// No CSV was built for the batch (or the file is gone).
+    Missing,
+    /// The CSV differs from what the database says now: a description changed or files were added.
+    Stale,
+}
+
+pub fn csv_readiness(conn: &Connection, batch_id: i64) -> AppResult<CsvReadiness> {
+    let Some(path) = state::recorded_csv_path(conn, batch_id)? else { return Ok(CsvReadiness::Missing) };
+    let Ok(on_disk) = std::fs::read(&path) else { return Ok(CsvReadiness::Missing) };
+    // A CSV is recorded only after it passed every check, so the same bytes mean the same, valid content.
+    let current = adobe_csv_bytes(&state::batch_items(conn, batch_id)?).ok();
+    Ok(if current.as_deref() == Some(on_disk.as_slice()) { CsvReadiness::Ready } else { CsvReadiness::Stale })
+}
+
+/// Why the batch cannot be uploaded; empty when it can.
+pub fn readiness_text(batch_id: i64, readiness: CsvReadiness) -> String {
+    match readiness {
+        CsvReadiness::Ready => String::new(),
+        CsvReadiness::Missing => {
+            format!("У батча {batch_id} нет CSV: сначала соберите его на странице «CSV и отправка».")
+        }
+        CsvReadiness::Stale => format!(
+            "CSV батча {batch_id} устарел или содержит ошибки (описания изменились после сборки): пересоберите его на странице «CSV и отправка»."
+        ),
+    }
 }

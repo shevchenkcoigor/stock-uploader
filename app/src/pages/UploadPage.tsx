@@ -49,7 +49,7 @@ function Bar({ fraction, label }: { fraction: number; label: string }) {
 }
 
 export function UploadPage({ active, navigate }: PageProps) {
-  const [overview, setOverview] = useState<UploadOverview>({ batches: [], counts: [] })
+  const [overview, setOverview] = useState<UploadOverview>({ batches: [], counts: [], csv: [] })
   const [batch, setBatch] = useState<number | null>(null)
   const [files, setFiles] = useState<QueueFile[]>([])
   const [running, setRunning] = useState(false)
@@ -113,7 +113,9 @@ export function UploadPage({ active, navigate }: PageProps) {
     say(KEYCHAIN_NOTICE)
     try {
       const report = await uploadApi.start(batch)
-      if (report.error) {
+      if (report.blocked) {
+        say(report.blocked, true)
+      } else if (report.error) {
         say(`Не удалось загрузить: ${report.error}. Файлы остались в очереди: проверьте SFTP в «Настройках».`, true)
       } else {
         const failed = report.failed.length
@@ -138,6 +140,8 @@ export function UploadPage({ active, navigate }: PageProps) {
   const shownPage = Math.min(page, Math.max(0, Math.ceil(ordered.length / PAGE_SIZE) - 1))
   const visible = ordered.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)
   const waiting = totals.done < totals.total
+  // the CSV is built first: a batch is uploaded only while its CSV is up to date
+  const csvBlock = overview.csv.find((item) => item.batchId === batch && item.readiness !== 'ready')?.reason ?? ''
 
   const sortBy = (field: UploadSort) => {
     setSort((now) => ({ field, descending: now.field === field && !now.descending }))
@@ -174,7 +178,7 @@ export function UploadPage({ active, navigate }: PageProps) {
             <h2 className="text-base font-semibold">Очередь загрузки</h2>
             <p className="text-sm text-ink-muted">{ordered.length > 0 ? summaryText(totals) : 'В очереди пусто'}</p>
           </div>
-          <button type="button" className={secondary} disabled={running || totals.failed === 0} onClick={() => void run()}>
+          <button type="button" className={secondary} disabled={running || totals.failed === 0 || csvBlock !== ''} onClick={() => void run()}>
             Повторить ошибки
           </button>
           <button type="button" className={secondary} disabled={!running} onClick={() => void uploadApi.pause()}>
@@ -182,7 +186,7 @@ export function UploadPage({ active, navigate }: PageProps) {
           </button>
           <button
             type="button"
-            disabled={running || !waiting || batch === null}
+            disabled={running || !waiting || batch === null || csvBlock !== ''}
             onClick={() => void run()}
             className="h-8 rounded-md bg-accent px-4 text-sm font-medium text-accent-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
           >
@@ -250,6 +254,14 @@ export function UploadPage({ active, navigate }: PageProps) {
           </table>
         </div>
 
+        {csvBlock && !running && waiting && (
+          <div className="flex items-center gap-3 rounded-md bg-sunken px-3 py-2 text-sm">
+            <p className="flex-1 text-warning">{csvBlock}</p>
+            <button type="button" className={secondary} onClick={() => navigate('csv')}>
+              К CSV →
+            </button>
+          </div>
+        )}
         <Pager total={ordered.length} pageSize={PAGE_SIZE} page={shownPage} onPage={setPage} />
         <div className="flex items-center gap-3">
           <p aria-live="polite" className={`min-h-4 flex-1 truncate text-xs ${notice?.error ? 'text-danger' : 'text-ink-muted'}`}>

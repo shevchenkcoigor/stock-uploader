@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::core::csv_batches::{csv_readiness, readiness_text, CsvReadiness};
 use crate::core::sftp::{self, Login, Uploader};
 use crate::core::upload::{self, UploadReport};
 use crate::core::{backup, state};
@@ -38,6 +39,17 @@ impl StatusCount {
 pub struct UploadOverview {
     batches: Vec<state::PendingBatch>,
     counts: Vec<StatusCount>,
+    /// Whether each batch has an up-to-date CSV: without one it cannot be uploaded.
+    csv: Vec<BatchCsv>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCsv {
+    batch_id: i64,
+    readiness: CsvReadiness,
+    /// Why the batch cannot be uploaded; empty when it can.
+    reason: String,
 }
 
 /// Batches with files waiting for upload, and what every batch is made of.
@@ -46,13 +58,21 @@ pub async fn upload_overview() -> AppResult<UploadOverview> {
     tauri::async_runtime::spawn_blocking(|| {
         backup::guard_state_db(&db::db_path())?;
         let Some(conn) = db::open_read_only()? else {
-            return Ok(UploadOverview { batches: vec![], counts: vec![] });
+            return Ok(UploadOverview { batches: vec![], counts: vec![], csv: vec![] });
         };
         let counts = state::batch_status_counts(&conn)?
             .into_iter()
             .map(|(batch_id, status, n)| StatusCount::new(batch_id, status, n))
             .collect();
-        Ok(UploadOverview { batches: state::upload_batches(&conn)?, counts })
+        let batches = state::upload_batches(&conn)?;
+        let csv = batches
+            .iter()
+            .map(|batch| {
+                let readiness = csv_readiness(&conn, batch.batch_id)?;
+                Ok(BatchCsv { batch_id: batch.batch_id, readiness, reason: readiness_text(batch.batch_id, readiness) })
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+        Ok(UploadOverview { batches, counts, csv })
     })
     .await
     .map_err(|error| AppError::Check(error.to_string()))?

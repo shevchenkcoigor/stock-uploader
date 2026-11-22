@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
+use super::csv_batches::{csv_readiness, readiness_text, CsvReadiness};
 use super::sftp::Uploader;
 use super::state;
 use crate::error::AppResult;
@@ -19,6 +20,8 @@ pub struct UploadReport {
     pub failed: Vec<String>,
     /// The whole run could not start or was cut off (DNS, login, ...).
     pub error: Option<String>,
+    /// Why nothing was sent: the batch has no up-to-date CSV yet.
+    pub blocked: Option<String>,
     pub stopped: bool,
 }
 
@@ -46,6 +49,13 @@ pub fn upload_batch(
     let total = files.len();
     let mut report = UploadReport { batch, total, ..UploadReport::default() };
     if files.is_empty() {
+        return Ok(report);
+    }
+    let readiness = csv_readiness(conn, batch)?;
+    if readiness != CsvReadiness::Ready {
+        let reason = readiness_text(batch, readiness);
+        state::log_event(conn, "upload", &format!("batch {batch}: refused, {reason}"), "warning", None)?;
+        report.blocked = Some(reason);
         return Ok(report);
     }
     state::log_event(conn, "upload", &format!("batch {batch}: started, {total} files"), "info", None)?;
@@ -148,12 +158,20 @@ mod tests {
             let path = dir.path().join(format!("p{index}.jpg"));
             std::fs::write(&path, b"12345").unwrap();
             conn.execute(
-                "INSERT INTO files (path, filename, size, sha256, root, status, batch_id, updated_at)
-                 VALUES (?, ?, 5, ?, '/r', 'pending', 1, 't')",
-                rusqlite::params![path.to_string_lossy(), format!("p{index}.jpg"), format!("h{index}")],
+                "INSERT INTO files (path, filename, size, sha256, root, status, batch_id, title, keywords, category, updated_at)
+                 VALUES (?, ?, 5, ?, '/r', 'pending', 1, ?, '[\"k\"]', '1', 't')",
+                rusqlite::params![
+                    path.to_string_lossy(),
+                    format!("p{index}.jpg"),
+                    format!("h{index}"),
+                    format!("Photo {index} Generative AI")
+                ],
             )
             .unwrap();
         }
+        // the CSV comes first: a batch is uploaded only once its CSV is built
+        let report = crate::core::csv_build::build_csv(&conn, 1, &dir.path().join("csv"), "Generative AI").unwrap();
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
         (dir, conn)
     }
 
@@ -180,6 +198,26 @@ mod tests {
         let rows = statuses(&conn);
         assert_eq!(rows[1], ("pending".to_string(), Some("Permission denied".to_string())));
         assert_eq!(rows[2].0, "uploaded");
+    }
+
+    #[test]
+    fn a_batch_without_a_current_csv_is_not_uploaded() {
+        let (_dir, conn) = setup(2);
+        let never = || -> Result<Box<dyn Uploader>, String> { panic!("must not connect") };
+
+        // a description changed after the CSV was built: the CSV is stale
+        conn.execute("UPDATE files SET title = 'Edited later Generative AI' WHERE filename = 'p0.jpg'", []).unwrap();
+        let stale = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
+        assert!(stale.blocked.as_deref().unwrap().contains("устарел"), "{stale:?}");
+        assert_eq!(stale.uploaded, 0);
+
+        // no CSV at all
+        conn.execute("UPDATE batches SET csv_path = NULL", []).unwrap();
+        let missing = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(missing.blocked.as_deref(), Some("У батча 1 нет CSV: сначала соберите его на странице «CSV и отправка»."));
+        assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
+        let last: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+        assert!(last.starts_with("batch 1: refused, "), "{last}");
     }
 
     #[test]

@@ -287,7 +287,7 @@ export function CsvPage({ active }: PageProps) {
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-semibold">{chosen ? chosen.name : 'Нет собранных CSV'}</h2>
-              <p className="text-sm text-ink-muted">{chosen ? rowsText(chosen) : 'Загрузите файлы по SFTP и нажмите «+ CSV»'}</p>
+              <p className="text-sm text-ink-muted">{chosen ? rowsText(chosen) : 'Опишите файлы и нажмите «+ CSV»'}</p>
               {hint && <p className="text-sm text-warning">{hint}</p>}
             </div>
             <button type="button" className={secondary} disabled={busy || !canSend} onClick={() => void markSubmitted()}>

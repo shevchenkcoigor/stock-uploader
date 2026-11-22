@@ -52,6 +52,6 @@ describe('csv page helpers', () => {
     const base = { batch: 1, rows: 2, path: '/p', notes: '/n', people: 1, problems: [] }
     expect(buildText({ ...base, rows: 0 })).toMatch(/^В батче нет/)
     expect(buildText({ ...base, problems: ['x', 'y'] })).toBe('ПРОБЛЕМА CSV: x; y')
-    expect(buildText(base)).toMatch(/^CSV собран: 2 строк, проверен по правилам Adobe\. .* 1 файлов с людьми\. Дальше в портале/)
+    expect(buildText(base)).toMatch(/^CSV собран: 2 строк, проверен по правилам Adobe\. .* 1 файлов с людьми\. Дальше: загрузите картинки по SFTP/)
   })
 })

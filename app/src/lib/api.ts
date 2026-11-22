@@ -118,9 +118,18 @@ export interface PendingBatch {
   n: number
 }
 
+export interface BatchCsv {
+  batchId: number
+  readiness: 'ready' | 'missing' | 'stale'
+  /** Why the batch cannot be uploaded; empty when it can. */
+  reason: string
+}
+
 export interface UploadOverview {
   batches: PendingBatch[]
   counts: Array<{ batchId: number; status: string; n: number }>
+  /** Without an up-to-date CSV a batch is not uploaded. */
+  csv: BatchCsv[]
 }
 
 export interface QueueFile {
@@ -137,6 +146,8 @@ export interface UploadReport {
   uploaded: number
   failed: string[]
   error: string | null
+  /** Why nothing was sent: the batch has no up-to-date CSV yet. */
+  blocked: string | null
   stopped: boolean
 }
 

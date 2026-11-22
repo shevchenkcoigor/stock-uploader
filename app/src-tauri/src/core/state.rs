@@ -761,12 +761,13 @@ pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-/// Uploaded, not yet submitted files of a batch: exactly what the portal CSV may cover.
+/// Described (pending) and uploaded, not yet submitted files of a batch: exactly what its CSV covers.
+/// The CSV is built before the pictures go to SFTP, so pending files belong in it.
 pub fn batch_items(conn: &Connection, batch_id: i64) -> AppResult<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT filename, title, keywords, category FROM files WHERE batch_id = ? AND status = ? ORDER BY id",
+        "SELECT filename, title, keywords, category FROM files WHERE batch_id = ? AND status IN (?, ?) ORDER BY id",
     )?;
-    let rows = stmt.query_map(params![batch_id, UPLOADED], |row| {
+    let rows = stmt.query_map(params![batch_id, PENDING, UPLOADED], |row| {
         Ok(Item {
             filename: row.get(0)?,
             title: row.get(1)?,
@@ -796,12 +797,12 @@ pub fn mark_batch_submitted(conn: &Connection, batch_id: i64) -> AppResult<usize
     )?)
 }
 
-/// Per-file facts for the portal checkboxes: (filename, people visible, content type).
+/// Per-file facts for the portal checkboxes of the files the CSV covers: (filename, people visible, content type).
 pub fn portal_notes(conn: &Connection, batch_id: i64) -> AppResult<Vec<(String, bool, String)>> {
     let mut stmt = conn.prepare(
-        "SELECT filename, people_visible, content_type FROM files WHERE batch_id = ? AND status = ? ORDER BY id",
+        "SELECT filename, people_visible, content_type FROM files WHERE batch_id = ? AND status IN (?, ?) ORDER BY id",
     )?;
-    let rows = stmt.query_map(params![batch_id, UPLOADED], |row| {
+    let rows = stmt.query_map(params![batch_id, PENDING, UPLOADED], |row| {
         Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)

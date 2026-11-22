@@ -6,9 +6,9 @@ export type ListField = 'name' | 'batch' | 'rows' | 'created' | 'updated' | 'sta
 export type RowField = 'name' | 'title' | 'keywords' | 'category'
 
 export const PORTAL_STEPS =
-  'Дальше в портале Adobe Stock: Uploaded Files → New → Upload CSV; галочки отметьте по чеклисту. Загрузка CSV и отправка выполняются вручную.'
+  'Дальше: загрузите картинки по SFTP (страница «Загрузка»), затем в портале Adobe Stock: Uploaded Files → New → Upload CSV; галочки отметьте по чеклисту. Загрузка CSV и отправка выполняются вручную.'
 export const NOTHING_TO_ADD =
-  'Нет картинок, которые можно добавить в батч: сначала загрузите их по SFTP (страница «Загрузка»).'
+  'Нет описанных файлов без CSV: сначала опишите картинки (страница «Описание»), затем соберите CSV.'
 
 // Same words and order as adobe_stock/gui/csv_page.py
 export const ENTRY_VIEWS: Record<CsvEntry['state'], { label: string; dot: string; rank: number }> = {
@@ -85,7 +85,7 @@ export function sortRows(rows: CsvRow[], field: RowField, descending: boolean): 
 
 /** The text under the table after a build. */
 export function buildText(report: CsvReport): string {
-  if (report.rows === 0) return 'В батче нет загруженных и неотправленных файлов.'
+  if (report.rows === 0) return 'В батче нет описанных и неотправленных файлов.'
   if (report.problems.length > 0) return `ПРОБЛЕМА CSV: ${report.problems.join('; ')}`
   return `CSV собран: ${report.rows} строк, проверен по правилам Adobe. «People and Property are fictional» — ${report.people} файлов с людьми. ${PORTAL_STEPS}`
 }

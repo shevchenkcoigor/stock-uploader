@@ -154,14 +154,15 @@ pub fn mark_submitted(conn: &Connection, batch: i64) -> AppResult<SubmittedRepor
 mod tests {
     use super::*;
 
+    /// a.jpg is uploaded, b.jpg described and waiting, c.jpg not described yet.
     fn setup() -> (tempfile::TempDir, Connection) {
         let dir = tempfile::tempdir().unwrap();
         let conn = state::open_db(&dir.path().join("state.db")).unwrap();
         conn.execute("INSERT INTO batches (folder, part, created_at) VALUES ('/r/trip', 1, 't')", []).unwrap();
         let rows = [
             ("a.jpg", "uploaded", "Red fox Generative AI", r#"["fox", "snow"]"#, "1", 0, "photo"),
-            ("b.jpg", "uploaded", "Blue sky Generative AI", r#"["sky"]"#, "11", 1, "illustration"),
-            ("c.jpg", "pending", "Not yet", r#"["x"]"#, "", 0, "photo"),
+            ("b.jpg", "pending", "Blue sky Generative AI", r#"["sky"]"#, "11", 1, "illustration"),
+            ("c.jpg", "needs_metadata", "", "[]", "", 0, ""),
         ];
         for (name, status, title, keywords, category, people, kind) in rows {
             conn.execute(
@@ -175,12 +176,12 @@ mod tests {
     }
 
     #[test]
-    fn a_csv_and_a_checklist_are_written_for_the_uploaded_files_only() {
+    fn the_csv_covers_described_and_uploaded_files_and_writes_a_checklist() {
         let (dir, conn) = setup();
         let report = build_csv(&conn, 1, &dir.path().join("csv"), "Generative AI").unwrap();
         assert_eq!((report.rows, report.people, report.problems.len()), (2, 1, 0));
         let csv = std::fs::read_to_string(report.path.as_ref().unwrap()).unwrap();
-        assert!(csv.starts_with("Filename,Title,Keywords,Category,Releases\r\na.jpg,Red fox Generative AI,\"fox, snow\",1,\r\n"));
+        assert!(csv.starts_with("Filename,Title,Keywords,Category,Releases\r\na.jpg,Red fox Generative AI,\"fox, snow\",1,\r\nb.jpg,"));
         assert!(!csv.contains("c.jpg"));
         let notes = std::fs::read_to_string(report.notes.unwrap()).unwrap();
         assert!(notes.starts_with("Portal checklist for batch 1 (2 files)\n\n1. Created using generative AI tools: tick for ALL 2 files"));
@@ -189,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_without_uploaded_files_builds_nothing_and_a_bad_row_is_reported() {
+    fn a_batch_without_files_for_the_csv_builds_nothing_and_empty_fields_are_reported() {
         let (dir, conn) = setup();
         assert_eq!(build_csv(&conn, 9, dir.path(), "").unwrap().rows, 0);
         conn.execute("UPDATE files SET title = '' WHERE filename = 'a.jpg'", []).unwrap();
@@ -207,8 +208,24 @@ mod tests {
         let report = build_csv(&conn, 1, dir.path(), "Generative AI").unwrap();
         assert_eq!(report.problems, vec!["b.jpg: no category".to_string()]);
         assert!(state::recorded_csv_path(&conn, 1).unwrap().is_none());
-        let entries_problem = crate::core::csv_batches::csv_entries(&conn, "Generative AI").unwrap();
-        assert!(entries_problem.is_empty(), "no CSV is recorded, so there is no entry yet");
+    }
+
+    #[test]
+    fn the_csv_list_follows_the_batch_from_built_to_sent_and_the_upload_gate_follows_the_csv() {
+        use crate::core::csv_batches::{csv_entries, csv_readiness, CsvReadiness, BUILT, ERROR, SENT};
+        let (dir, conn) = setup();
+        assert_eq!(csv_readiness(&conn, 1).unwrap(), CsvReadiness::Missing);
+        build_csv(&conn, 1, dir.path(), "Generative AI").unwrap();
+        assert_eq!(csv_readiness(&conn, 1).unwrap(), CsvReadiness::Ready);
+        let entry = &csv_entries(&conn, "Generative AI").unwrap()[0];
+        assert_eq!((entry.state, entry.rows, entry.bad_rows), (BUILT, 2, 0));
+
+        conn.execute("UPDATE files SET category = '' WHERE filename = 'a.jpg'", []).unwrap();
+        assert_eq!(csv_readiness(&conn, 1).unwrap(), CsvReadiness::Stale);
+        assert_eq!(csv_entries(&conn, "Generative AI").unwrap()[0].state, ERROR);
+
+        conn.execute("UPDATE files SET category = '1', status = 'submitted' WHERE batch_id = 1 AND filename != 'c.jpg'", []).unwrap();
+        assert_eq!(csv_entries(&conn, "Generative AI").unwrap()[0].state, SENT);
     }
 
     #[test]
@@ -216,14 +233,15 @@ mod tests {
         let (dir, conn) = setup();
         build_csv(&conn, 1, dir.path(), "Generative AI").unwrap();
         let refused = mark_submitted(&conn, 1).unwrap();
-        assert_eq!(refused.waiting, vec![("pending".to_string(), 1)]);
+        assert_eq!(refused.waiting, vec![("needs_metadata".to_string(), 1), ("pending".to_string(), 1)]);
         assert_eq!(refused.count, 0);
 
-        conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'c.jpg'", []).unwrap();
+        conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'b.jpg'", []).unwrap();
+        conn.execute("UPDATE files SET status = 'invalid' WHERE filename = 'c.jpg'", []).unwrap();
         let done = mark_submitted(&conn, 1).unwrap();
-        assert_eq!((done.count, done.warnings.len()), (3, 0));
+        assert_eq!((done.count, done.warnings.len()), (2, 0));
         let message: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
-        assert_eq!(message, "batch 1: 3 files marked submitted");
+        assert_eq!(message, "batch 1: 2 files marked submitted");
         assert_eq!(dict_repr(&[("pending".into(), 2), ("review".into(), 1)]), "{'pending': 2, 'review': 1}");
     }
 }
