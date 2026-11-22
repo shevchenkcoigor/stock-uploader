@@ -8,6 +8,7 @@ pub mod categories;
 pub mod csv_batches;
 pub mod csv_build;
 pub mod describe;
+pub mod embed;
 pub mod imaging;
 pub mod metadata_csv;
 pub mod scan;
