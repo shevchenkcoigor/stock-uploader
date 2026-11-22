@@ -150,7 +150,7 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
           onChange={(event) => row && onStatus(row.filename, event.target.value)}
           className={inputClass}
         >
-          {row && !EDITABLE_STATUSES.includes(row.status) && <option value={row.status}>{viewOf(row.status).label}</option>}
+          {row && !(EDITABLE_STATUSES as readonly string[]).includes(row.status) && <option value={row.status}>{viewOf(row.status).label}</option>}
           {EDITABLE_STATUSES.map((key) => (
             <option key={key} value={key}>
               {viewOf(key).label}
