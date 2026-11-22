@@ -1,4 +1,3 @@
-import { ask } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pager } from '../components/Pager'
 import { csvApi, filesApi, type CsvEntry, type CsvOverview, type CsvRow } from '../lib/api'
@@ -8,11 +7,9 @@ import {
   NOTHING_TO_ADD,
   buildText,
   dateText,
-  refusedText,
   rowsText,
   sortEntries,
   sortRows,
-  waitingText,
   type ListField,
   type RowField,
 } from '../lib/csv'
@@ -166,33 +163,12 @@ export function CsvPage({ active }: PageProps) {
     }
   }
 
-  const markSubmitted = async () => {
-    if (chosenId === null) return
-    const agreed = await ask(
-      `Вы уже загрузили CSV батча ${chosenId} в портале и отправили файлы на проверку?\nБатч будет помечен как отправленный.`,
-      { title: 'Отметить отправленным', kind: 'warning' },
-    )
-    if (!agreed) return
-    setBusy(true)
-    try {
-      const report = await csvApi.markSubmitted(chosenId)
-      if (report.waiting.length > 0) say(refusedText(chosenId, report.waiting), true)
-      else say(`Отмечено отправленными: ${report.count}. ${report.warnings.map((w) => `ВНИМАНИЕ ${w}.`).join(' ')}`.trim())
-    } catch (reason) {
-      say(`ОШИБКА: ${reason}`, true)
-    } finally {
-      finish()
-    }
-  }
-
   const sortList = (field: ListField) => setListSort((now) => ({ field, descending: now.field === field && !now.descending }))
   const sortRowsBy = (field: RowField) => {
     setRowSort((now) => ({ field, descending: now.field === field && !now.descending }))
     setPage(0)
   }
   const statusOf = (id: number) => batchStatusText(overview.counts.filter((item) => item.batchId === id))
-  const canSend = chosen !== null && chosen.state === 'built' && chosen.waiting.length === 0
-  const hint = chosen !== null && chosen.state !== 'sent' ? waitingText(chosen) : ''
   const open = (path: string) => void filesApi.open(path).catch(() => say(`Файл не найден на диске: ${path}. Нажмите «Пересобрать».`, true))
 
   return (
@@ -288,11 +264,7 @@ export function CsvPage({ active }: PageProps) {
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-semibold">{chosen ? chosen.name : 'Нет собранных CSV'}</h2>
               <p className="text-sm text-ink-muted">{chosen ? rowsText(chosen) : 'Опишите файлы и нажмите «+ CSV»'}</p>
-              {hint && <p className="text-sm text-warning">{hint}</p>}
             </div>
-            <button type="button" className={secondary} disabled={busy || !canSend} onClick={() => void markSubmitted()}>
-              Отметить отправленным
-            </button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">

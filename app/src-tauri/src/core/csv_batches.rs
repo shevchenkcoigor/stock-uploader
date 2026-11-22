@@ -190,10 +190,10 @@ pub fn readiness_text(batch_id: i64, readiness: CsvReadiness) -> String {
     match readiness {
         CsvReadiness::Ready => String::new(),
         CsvReadiness::Missing => {
-            format!("У батча {batch_id} нет CSV: сначала соберите его на странице «CSV и отправка».")
+            format!("У батча {batch_id} нет CSV: сначала соберите его на странице «CSV».")
         }
         CsvReadiness::Stale => format!(
-            "CSV батча {batch_id} устарел или содержит ошибки (описания изменились после сборки): пересоберите его на странице «CSV и отправка»."
+            "CSV батча {batch_id} устарел или содержит ошибки (описания изменились после сборки): пересоберите его на странице «CSV»."
         ),
     }
 }

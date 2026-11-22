@@ -123,6 +123,8 @@ export interface BatchCsv {
   readiness: 'ready' | 'missing' | 'stale'
   /** Why the batch cannot be uploaded; empty when it can. */
   reason: string
+  /** File name of the batch's CSV, for the portal hint. */
+  csvName: string
 }
 
 export interface UploadOverview {

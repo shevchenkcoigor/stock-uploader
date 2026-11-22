@@ -1,8 +1,9 @@
 import { listen } from '@tauri-apps/api/event'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pager } from '../components/Pager'
 import { Thumb } from '../components/Thumb'
-import { filesApi, uploadApi, type PendingBatch, type QueueFile, type UploadOverview, type UploadProgress } from '../lib/api'
+import { csvApi, filesApi, uploadApi, type PendingBatch, type QueueFile, type UploadOverview, type UploadProgress } from '../lib/api'
 import { formatSize } from '../lib/describe'
 import { DATA_CHANGED_EVENT } from '../lib/events'
 import {
@@ -58,7 +59,6 @@ export function UploadPage({ active, navigate }: PageProps) {
   const [sort, setSort] = useState<{ field: UploadSort; descending: boolean }>({ field: 'status', descending: false })
   const [page, setPage] = useState(0)
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
-  const [finished, setFinished] = useState(false)
 
   const say = useCallback((text: string, error = false) => setNotice({ text, error }), [])
 
@@ -108,7 +108,6 @@ export function UploadPage({ active, navigate }: PageProps) {
   const run = async () => {
     if (batch === null || running) return
     setRunning(true)
-    setFinished(false)
     setCurrent(null)
     say(KEYCHAIN_NOTICE)
     try {
@@ -122,7 +121,6 @@ export function UploadPage({ active, navigate }: PageProps) {
         const parts = [`Загружено: ${report.uploaded} из ${report.total}, ошибок: ${failed}`]
         if (report.stopped) parts.push('приостановлено')
         say(parts.join(' · '), failed > 0)
-        setFinished(report.uploaded > 0 && failed === 0 && !report.stopped)
       }
     } catch (reason) {
       say(`ОШИБКА: ${reason}`, true)
@@ -130,6 +128,26 @@ export function UploadPage({ active, navigate }: PageProps) {
       setRunning(false)
       setCurrent(null)
       window.dispatchEvent(new Event(DATA_CHANGED_EVENT))
+    }
+  }
+
+  const markSubmitted = async () => {
+    if (batch === null) return
+    const agreed = await ask(
+      `Вы уже загрузили CSV батча ${batch} в портале и отправили файлы на проверку?\nБатч будет помечен как отправленный.`,
+      { title: 'Отметить отправленным', kind: 'warning' },
+    )
+    if (!agreed) return
+    setRunning(true)
+    try {
+      const report = await csvApi.markSubmitted(batch)
+      const warnings = report.warnings.map((warning) => `ВНИМАНИЕ ${warning}.`).join(' ')
+      say(`Отмечено отправленными: ${report.count}. ${warnings}`.trim(), report.count === 0)
+    } catch (reason) {
+      say(`ОШИБКА: ${reason}`, true)
+    } finally {
+      setRunning(false)
+        window.dispatchEvent(new Event(DATA_CHANGED_EVENT))
     }
   }
 
@@ -141,6 +159,7 @@ export function UploadPage({ active, navigate }: PageProps) {
   const visible = ordered.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)
   const waiting = totals.done < totals.total
   // the CSV is built first: a batch is uploaded only while its CSV is up to date
+  const csvName = overview.csv.find((item) => item.batchId === batch)?.csvName ?? ''
   const csvBlock = overview.csv.find((item) => item.batchId === batch && item.readiness !== 'ready')?.reason ?? ''
 
   const sortBy = (field: UploadSort) => {
@@ -159,8 +178,7 @@ export function UploadPage({ active, navigate }: PageProps) {
           onChange={(event) => {
             setBatch(Number(event.target.value))
             setPage(0)
-            setFinished(false)
-          }}
+                  }}
           className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
         >
           {overview.batches.length === 0 && <option value="">Нет файлов для загрузки</option>}
@@ -191,6 +209,15 @@ export function UploadPage({ active, navigate }: PageProps) {
             className="h-8 rounded-md bg-accent px-4 text-sm font-medium text-accent-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
           >
             Загрузить
+          </button>
+          <button
+            type="button"
+            className={secondary}
+            disabled={running || waiting || batch === null || ordered.length === 0 || csvBlock !== ''}
+            title="Когда CSV загружен в портале и файлы отправлены на проверку"
+            onClick={() => void markSubmitted()}
+          >
+            Отметить отправленным
           </button>
         </div>
 
@@ -263,15 +290,16 @@ export function UploadPage({ active, navigate }: PageProps) {
           </div>
         )}
         <Pager total={ordered.length} pageSize={PAGE_SIZE} page={shownPage} onPage={setPage} />
+        {!waiting && ordered.length > 0 && csvBlock === '' && !running && (
+          <p className="rounded-md bg-sunken px-3 py-2 text-sm">
+            Все файлы на SFTP. Дальше в портале Adobe Stock: Uploaded Files → New → Upload CSV
+            {csvName ? ` (файл ${csvName})` : ''}, галочки по чеклисту; затем нажмите «Отметить отправленным».
+          </p>
+        )}
         <div className="flex items-center gap-3">
           <p aria-live="polite" className={`min-h-4 flex-1 truncate text-xs ${notice?.error ? 'text-danger' : 'text-ink-muted'}`}>
             {notice?.text}
           </p>
-          {finished && (
-            <button type="button" className={secondary} onClick={() => navigate('csv')}>
-              Дальше: CSV и отправка →
-            </button>
-          )}
         </div>
       </section>
     </div>

@@ -214,7 +214,7 @@ mod tests {
         // no CSV at all
         conn.execute("UPDATE batches SET csv_path = NULL", []).unwrap();
         let missing = upload_batch(&conn, 1, never, &mut |_| {}, &|| false).unwrap();
-        assert_eq!(missing.blocked.as_deref(), Some("У батча 1 нет CSV: сначала соберите его на странице «CSV и отправка»."));
+        assert_eq!(missing.blocked.as_deref(), Some("У батча 1 нет CSV: сначала соберите его на странице «CSV»."));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
         let last: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
         assert!(last.starts_with("batch 1: refused, "), "{last}");

@@ -50,6 +50,8 @@ pub struct BatchCsv {
     readiness: CsvReadiness,
     /// Why the batch cannot be uploaded; empty when it can.
     reason: String,
+    /// File name of the batch's CSV, for the portal hint.
+    csv_name: String,
 }
 
 /// Batches with files waiting for upload, and what every batch is made of.
@@ -69,7 +71,10 @@ pub async fn upload_overview() -> AppResult<UploadOverview> {
             .iter()
             .map(|batch| {
                 let readiness = csv_readiness(&conn, batch.batch_id)?;
-                Ok(BatchCsv { batch_id: batch.batch_id, readiness, reason: readiness_text(batch.batch_id, readiness) })
+                let csv_name = state::recorded_csv_path(&conn, batch.batch_id)?
+                    .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+                    .unwrap_or_default();
+                Ok(BatchCsv { batch_id: batch.batch_id, readiness, reason: readiness_text(batch.batch_id, readiness), csv_name })
             })
             .collect::<AppResult<Vec<_>>>()?;
         Ok(UploadOverview { batches, counts, csv })
