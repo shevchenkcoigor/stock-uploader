@@ -105,6 +105,15 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+      # `tauri build` downloads WiX and NSIS into %LOCALAPPDATA%\tauri on every fresh Windows
+      # runner; rust-cache does not cover that folder, so cache it separately.
+      - name: Cache Tauri bundler tools
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\tauri
+          key: tauri-bundler-tools-${{ runner.os }}-${{ hashFiles('app/src-tauri/tauri.conf.json') }}
+          restore-keys: tauri-bundler-tools-${{ runner.os }}-
       - name: Tauri system libraries
         if: runner.os == 'Linux'
         run: |
