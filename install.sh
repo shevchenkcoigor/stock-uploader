@@ -1,13 +1,11 @@
 #!/bin/sh
-# Builds the desktop app on macOS or Linux. Usage: ./install.sh [--zip] [--no-smoke]
+# Builds the desktop app (Tauri) for this machine: npm ci, then `tauri build`.
+# Needs Node 22+ and a Rust toolchain (https://rustup.rs). On macOS the result is
+# app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app
 set -e
-cd "$(dirname "$0")"
-
-for candidate in python3.13 python3.12 python3; do
-    if command -v "$candidate" >/dev/null 2>&1 \
-        && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
-        exec "$candidate" packaging/build.py "$@"
-    fi
+cd "$(dirname "$0")/app"
+for tool in node npm cargo; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required (Node 22+, Rust: https://rustup.rs)" >&2; exit 1; }
 done
-echo "Python 3.12 or newer is required. Install it from https://www.python.org/downloads/" >&2
-exit 1
+npm ci
+npm run tauri -- build "$@"

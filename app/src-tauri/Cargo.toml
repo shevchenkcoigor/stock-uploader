@@ -27,7 +27,7 @@ thiserror = "2.0.21"
 plist = "1.10.4"
 ssh2 = { version = "0.9.7", features = ["vendored-openssl"] }
 tauri-plugin-dialog = "2.8.4"
-keyring = { version = "3", features = ["apple-native"] }
+keyring = "3"
 sha2 = "0.11.1"
 csv = "1.4.0"
 regex = "1.13.2"
@@ -37,3 +37,13 @@ chrono = { version = "0.4.45", features = ["clock"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 tempfile = "3.27.0"
 
+
+# The OS credential store of each platform (the SFTP password lives there).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
