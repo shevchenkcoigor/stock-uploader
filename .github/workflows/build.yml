@@ -15,46 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint and types
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      # basedpyright reads its interpreter from .venv (see pyproject.toml), so install there.
-      - name: Install
-        run: |
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-      - name: ruff check
-        run: .venv/bin/ruff check
-      - name: ruff format
-        run: .venv/bin/ruff format --check
-      - name: basedpyright
-        run: .venv/bin/basedpyright
-
-  test:
-    name: Tests (${{ matrix.os }})
-    needs: lint
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install
-        run: python -m pip install -e ".[dev]"
-      - name: Test
-        run: python -m pytest -q
-
   app:
-    name: App checks (frontend and Rust)
+    name: Checks (frontend and Rust)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,7 +47,7 @@ jobs:
   # Builds run only when the checks passed.
   build:
     name: Build (${{ matrix.os }})
-    needs: [lint, test, app]
+    needs: app
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -126,12 +88,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # The only way into main: a pull request whose lint, tests, app checks and builds all passed.
+  # The only way into main: a pull request whose frontend and Rust checks and builds on every OS all passed.
   # Direct pushes to main are not blocked by GitHub on this plan, so the rule lives in CLAUDE.md,
   # .claude/settings.json and the pre-push hook.
   automerge:
     name: Merge into main
-    needs: [lint, test, app, build]
+    needs: [app, build]
     if: >-
       github.event_name == 'pull_request'
       && github.base_ref == 'main'

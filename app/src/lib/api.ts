@@ -37,7 +37,6 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export interface Settings {
   dbPath: string
-  csvDir: string
   sftpHost: string
   sftpPort: number
   sftpUser: string
@@ -53,7 +52,6 @@ export interface Settings {
 export interface SettingsView {
   settings: Settings
   defaultDbPath: string
-  defaultCsvDir: string
 }
 
 export const settingsApi = {
@@ -118,20 +116,9 @@ export interface PendingBatch {
   n: number
 }
 
-export interface BatchCsv {
-  batchId: number
-  readiness: 'ready' | 'missing' | 'stale'
-  /** Why the batch cannot be uploaded; empty when it can. */
-  reason: string
-  /** File name of the batch's CSV, for the portal hint. */
-  csvName: string
-}
-
 export interface UploadOverview {
   batches: PendingBatch[]
   counts: Array<{ batchId: number; status: string; n: number }>
-  /** Without an up-to-date CSV a batch is not uploaded. */
-  csv: BatchCsv[]
 }
 
 export interface QueueFile {
@@ -148,7 +135,7 @@ export interface UploadReport {
   uploaded: number
   failed: string[]
   error: string | null
-  /** Why nothing was sent: the batch has no up-to-date CSV yet. */
+  /** Why nothing was sent: the batch has no up-to-date prepared copies yet. */
   blocked: string | null
   stopped: boolean
 }
@@ -162,64 +149,40 @@ export interface UploadProgress {
   size: number
 }
 
+/** What preparing a batch (copies with the title and keywords embedded) did. */
+export interface PrepareReport {
+  batch: number
+  total: number
+  /** Copies written now. */
+  prepared: number
+  /** Copies that were already up to date. */
+  current: number
+  /** Metadata Adobe would not accept; nothing is written while there are any. */
+  problems: string[]
+  /** Files whose copy could not be written. */
+  failed: string[]
+  stopped: boolean
+}
+
+export interface PrepareProgress {
+  done: number
+  total: number
+  file: string
+}
+
 export const uploadApi = {
   overview: () => invoke<UploadOverview>('upload_overview'),
   queue: (batch: number) => invoke<QueueFile[]>('upload_queue', { batch }),
+  prepare: (batch: number) => invoke<PrepareReport>('upload_prepare', { batch }),
   start: (batch: number) => invoke<UploadReport>('upload_start', { batch }),
   pause: () => invoke<void>('upload_pause'),
-}
-
-export interface CsvEntry {
-  batchId: number
-  name: string
-  rows: number
-  badRows: number
-  state: 'built' | 'sent' | 'error'
-  path: string
-  folder: string
-  part: number
-  /** [status, files] of batch files not on SFTP yet. */
-  waiting: Array<[string, number]>
-  /** Epoch seconds; 0 when the file is missing. */
-  created: number
-  updated: number
-}
-
-export interface CsvRow {
-  filename: string
-  path: string
-  title: string
-  keywords: string[]
-  category: string
-  status: string
-}
-
-export interface CsvOverview {
-  entries: CsvEntry[]
-  offered: PendingBatch[]
-  counts: Array<{ batchId: number; status: string; n: number }>
-}
-
-export interface CsvReport {
-  batch: number
-  rows: number
-  path: string | null
-  notes: string | null
-  people: number
-  problems: string[]
+  markSubmitted: (batch: number) => invoke<SubmittedReport>('upload_mark_submitted', { batch }),
 }
 
 export interface SubmittedReport {
   count: number
   warnings: string[]
   waiting: Array<[string, number]>
-}
-
-export const csvApi = {
-  overview: () => invoke<CsvOverview>('csv_overview'),
-  rows: (batch: number) => invoke<CsvRow[]>('csv_batch_rows', { batch }),
-  build: (batch: number) => invoke<CsvReport>('csv_build', { batch }),
-  markSubmitted: (batch: number) => invoke<SubmittedReport>('csv_mark_submitted', { batch }),
 }
 
 export const scanApi = {

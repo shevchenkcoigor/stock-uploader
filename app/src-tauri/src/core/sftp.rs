@@ -1,4 +1,4 @@
-//! SFTP upload to Adobe Stock (port of `sftp_upload.py`), over `ssh2`.
+//! SFTP upload to Adobe Stock, over `ssh2`.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};

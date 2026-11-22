@@ -1,12 +1,11 @@
-//! Scan service: find the JPEGs of a folder, match `metadata.csv` rows and register them. Port of
-//! `services.find_images`, `load_metadata` and `scan`.
+//! Scan service: find the JPEGs of a folder, match `metadata.csv` rows and register them.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use super::metadata_csv::{check_items, read_source, Item, DEFAULT_AI_TITLE_LABEL};
+use super::metadata::{check_items, read_source, Item, DEFAULT_AI_TITLE_LABEL};
 use super::state::{self, ProgressFn, ScanResult};
 use super::validate::validate_image;
 use crate::error::{AppError, AppResult};
@@ -49,7 +48,7 @@ pub fn find_images(root: &Path, recursive: bool) -> Vec<PathBuf> {
     found
 }
 
-/// `metadata.csv` files next to the images (shown to the user, as the PySide app reads them).
+/// `metadata.csv` files next to the images (shown to the user).
 pub fn metadata_files(images: &[PathBuf]) -> Vec<PathBuf> {
     let sources: HashSet<PathBuf> =
         images.iter().filter_map(|image| image.parent()).map(|dir| dir.join(METADATA_FILE)).collect();

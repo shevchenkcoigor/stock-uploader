@@ -1,4 +1,4 @@
-//! Generate Adobe Stock titles and keywords with headless Claude Code (no API key needed). Port of `caption.py`.
+//! Generate Adobe Stock titles and keywords with headless Claude Code (no API key needed).
 //!
 //! Each call receives several downscaled images and returns JSON. The call is slimmed down (no MCP
 //! servers, no skills, no user settings, short system prompt) so it uses a few thousand tokens instead of
@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use super::categories::{category_menu, is_category_code, CATEGORIES};
 use super::imaging;
-use super::metadata_csv::{keyword_problem, AI_TERMS, MAX_KEYWORDS, MAX_TITLE_CHARS};
+use super::metadata::{keyword_problem, AI_TERMS, MAX_KEYWORDS, MAX_TITLE_CHARS};
 
 pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// (model id, short note shown in the picker); extend this list when new models appear.
@@ -159,7 +159,7 @@ pub fn clean_keywords(raw: &[String]) -> Vec<String> {
     kept
 }
 
-/// The category as a CSV code string; anything outside Adobe's list is dropped (optional field).
+/// The category as an Adobe category code string; anything outside Adobe's list is dropped (optional field).
 fn category_code(raw: Option<&Value>) -> String {
     raw.and_then(Value::as_i64).filter(|code| is_category_code(*code)).map_or_else(String::new, |code| code.to_string())
 }

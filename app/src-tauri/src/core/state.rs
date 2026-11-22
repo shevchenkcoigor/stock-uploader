@@ -1,5 +1,4 @@
-//! The SQLite state database: schema, scan registration, batches, event log. Port of `state.py`
-//! (only what the pages migrated so far need). The schema text is identical to the Python one.
+//! The SQLite state database: schema, scan registration, batches, event log.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -9,7 +8,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
-use super::metadata_csv::{split_into_batches, Item};
+use super::metadata::{split_into_batches, Item};
 use crate::error::AppResult;
 
 pub const PENDING: &str = "pending";
@@ -27,7 +26,6 @@ CREATE TABLE IF NOT EXISTS batches (
     id INTEGER PRIMARY KEY,
     folder TEXT NOT NULL,
     part INTEGER NOT NULL,
-    csv_path TEXT,
     created_at TEXT NOT NULL,
     UNIQUE (folder, part)
 );
@@ -112,6 +110,9 @@ fn add_missing_columns(conn: &Connection) -> AppResult<()> {
         ("root", "TEXT NOT NULL DEFAULT ''"),
         ("people_visible", "INTEGER NOT NULL DEFAULT 0"),
         ("content_type", "TEXT NOT NULL DEFAULT ''"),
+        // the prepared copy that is uploaded, and a fingerprint of the metadata embedded in it
+        ("export_path", "TEXT NOT NULL DEFAULT ''"),
+        ("embedded_hash", "TEXT NOT NULL DEFAULT ''"),
     ];
     for (name, ddl) in additions {
         if !columns.iter().any(|column| column == name) {
@@ -222,7 +223,7 @@ fn problems_of(conn: &Connection, image: &Path, digest: &str, check_image: &dyn 
     Ok(problems)
 }
 
-/// The flat SFTP/CSV name; a content-hash suffix keeps names of different files apart.
+/// The flat SFTP name; a content-hash suffix keeps names of different files apart.
 fn remote_name(conn: &Connection, image: &Path, digest: &str) -> AppResult<String> {
     let name = file_name(image);
     let taken = conn
@@ -404,19 +405,12 @@ pub fn batch_unassigned(conn: &Connection, batch_size: Option<usize>) -> AppResu
     Ok(created)
 }
 
-/// The latest batch of `root` while it can still take files: no CSV yet and every file pending.
+/// The latest batch of `root` while it can still take files: every file of it is still pending.
 fn open_batch(conn: &Connection, root: &str) -> AppResult<Option<(i64, Vec<(String, Item)>)>> {
-    let batch: Option<(i64, Option<String>)> = conn
-        .query_row(
-            "SELECT id, csv_path FROM batches WHERE folder = ? ORDER BY part DESC LIMIT 1",
-            [root],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+    let id: Option<i64> = conn
+        .query_row("SELECT id FROM batches WHERE folder = ? ORDER BY part DESC LIMIT 1", [root], |row| row.get(0))
         .optional()?;
-    let Some((id, csv_path)) = batch else { return Ok(None) };
-    if csv_path.is_some_and(|path| !path.is_empty()) {
-        return Ok(None);
-    }
+    let Some(id) = id else { return Ok(None) };
     let mut stmt = conn
         .prepare("SELECT path, filename, title, keywords, category, status FROM files WHERE batch_id = ? ORDER BY id")?;
     let rows: Vec<(String, Item, String)> = stmt
@@ -561,7 +555,7 @@ pub fn bulk_edit(conn: &Connection, filenames: &[String], tag: &str, category: O
             .optional()?;
         let Some((title, raw_keywords, old_category)) = row else { continue };
         let mut keywords = parse_keywords(&raw_keywords);
-        if !tag.is_empty() && !keywords.iter().any(|word| word == tag) && keywords.len() < super::metadata_csv::MAX_KEYWORDS {
+        if !tag.is_empty() && !keywords.iter().any(|word| word == tag) && keywords.len() < super::metadata::MAX_KEYWORDS {
             keywords.push(tag.to_string());
         }
         update_metadata(&tx, filename, &title, &keywords, category.unwrap_or(&old_category))?;
@@ -747,9 +741,24 @@ pub fn batch_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<QueueFile>
 }
 
 /// Pending files of a batch as (local path, remote name).
-pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<(PathBuf, String)>> {
-    let mut stmt = conn.prepare("SELECT path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
-    let rows = stmt.query_map(params![PENDING, batch_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), row.get(1)?)))?;
+/// A file waiting for upload: the original, the prepared copy that goes out, and its flat SFTP name.
+#[derive(Debug, PartialEq, Eq)]
+pub struct UploadFile {
+    pub source: PathBuf,
+    pub export: PathBuf,
+    pub name: String,
+}
+
+pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<UploadFile>> {
+    let mut stmt =
+        conn.prepare("SELECT path, export_path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
+    let rows = stmt.query_map(params![PENDING, batch_id], |row| {
+        Ok(UploadFile {
+            source: PathBuf::from(row.get::<_, String>(0)?),
+            export: PathBuf::from(row.get::<_, String>(1)?),
+            name: row.get(2)?,
+        })
+    })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -761,34 +770,6 @@ pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-/// Described (pending) and uploaded, not yet submitted files of a batch: exactly what its CSV covers.
-/// The CSV is built before the pictures go to SFTP, so pending files belong in it.
-pub fn batch_items(conn: &Connection, batch_id: i64) -> AppResult<Vec<Item>> {
-    let mut stmt = conn.prepare(
-        "SELECT filename, title, keywords, category FROM files WHERE batch_id = ? AND status IN (?, ?) ORDER BY id",
-    )?;
-    let rows = stmt.query_map(params![batch_id, PENDING, UPLOADED], |row| {
-        Ok(Item {
-            filename: row.get(0)?,
-            title: row.get(1)?,
-            keywords: parse_keywords(&row.get::<_, String>(2)?),
-            category: row.get(3)?,
-        })
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}
-
-pub fn recorded_csv_path(conn: &Connection, batch_id: i64) -> AppResult<Option<PathBuf>> {
-    let path: Option<Option<String>> =
-        conn.query_row("SELECT csv_path FROM batches WHERE id = ?", [batch_id], |row| row.get(0)).optional()?;
-    Ok(path.flatten().filter(|text| !text.is_empty()).map(PathBuf::from))
-}
-
-pub fn record_csv(conn: &Connection, batch_id: i64, csv_path: &Path) -> AppResult<()> {
-    conn.execute("UPDATE batches SET csv_path = ? WHERE id = ?", params![csv_path.to_string_lossy(), batch_id])?;
-    Ok(())
-}
-
 /// Marks the uploaded files of a batch as submitted; returns how many.
 pub fn mark_batch_submitted(conn: &Connection, batch_id: i64) -> AppResult<usize> {
     Ok(conn.execute(
@@ -797,13 +778,3 @@ pub fn mark_batch_submitted(conn: &Connection, batch_id: i64) -> AppResult<usize
     )?)
 }
 
-/// Per-file facts for the portal checkboxes of the files the CSV covers: (filename, people visible, content type).
-pub fn portal_notes(conn: &Connection, batch_id: i64) -> AppResult<Vec<(String, bool, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT filename, people_visible, content_type FROM files WHERE batch_id = ? AND status IN (?, ?) ORDER BY id",
-    )?;
-    let rows = stmt.query_map(params![batch_id, PENDING, UPLOADED], |row| {
-        Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?))
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}

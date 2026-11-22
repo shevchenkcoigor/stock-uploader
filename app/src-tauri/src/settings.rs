@@ -21,7 +21,6 @@ const THEMES: [&str; 3] = ["system", "light", "dark"];
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
     pub db_path: String,
-    pub csv_dir: String,
     pub sftp_host: String,
     pub sftp_port: u32,
     pub sftp_user: String,
@@ -39,7 +38,6 @@ pub struct SettingsDto {
 pub struct SettingsView {
     pub settings: SettingsDto,
     pub default_db_path: String,
-    pub default_csv_dir: String,
 }
 
 fn number(map: &PrefMap, key: &str, default: u32) -> u32 {
@@ -50,7 +48,6 @@ fn from_map(map: &PrefMap) -> SettingsDto {
     let batch_size = number(map, "batch_size", DEFAULT_BATCH_SIZE);
     SettingsDto {
         db_path: prefs::text(map, "db_path", ""),
-        csv_dir: prefs::text(map, "csv_dir", ""),
         sftp_host: prefs::text(map, "sftp_host", DEFAULT_SFTP_HOST),
         sftp_port: number(map, "sftp_port", DEFAULT_SFTP_PORT),
         sftp_user: prefs::text(map, "sftp_user", ""),
@@ -101,7 +98,6 @@ fn validated(dto: &SettingsDto) -> AppResult<SettingsDto> {
     }
     Ok(SettingsDto {
         db_path: expand_home(dto.db_path.trim()),
-        csv_dir: expand_home(dto.csv_dir.trim()),
         sftp_host: host,
         sftp_user: dto.sftp_user.trim().to_string(),
         ai_title_label: dto.ai_title_label.trim().to_string(),
@@ -121,7 +117,6 @@ pub fn expand_home(path: &str) -> String {
 fn merged(map: &PrefMap, dto: &SettingsDto) -> PrefMap {
     let updates = [
         ("db_path", dto.db_path.clone()),
-        ("csv_dir", dto.csv_dir.clone()),
         ("sftp_host", dto.sftp_host.clone()),
         ("sftp_port", dto.sftp_port.to_string()),
         ("sftp_user", dto.sftp_user.clone()),
@@ -143,7 +138,6 @@ fn view(dto: SettingsDto) -> SettingsView {
     SettingsView {
         settings: dto,
         default_db_path: data_dir.join("state.db").display().to_string(),
-        default_csv_dir: data_dir.join("csv").display().to_string(),
     }
 }
 
@@ -238,9 +232,9 @@ mod tests {
 
     #[test]
     fn trims_text_and_expands_home() {
-        let dto = SettingsDto { sftp_user: " user ".into(), csv_dir: "~/csv".into(), ..sample() };
+        let dto = SettingsDto { sftp_user: " user ".into(), db_path: "~/state.db".into(), ..sample() };
         let checked = validated(&dto).unwrap();
         assert_eq!(checked.sftp_user, "user");
-        assert!(!checked.csv_dir.starts_with('~'));
+        assert!(!checked.db_path.starts_with('~'));
     }
 }

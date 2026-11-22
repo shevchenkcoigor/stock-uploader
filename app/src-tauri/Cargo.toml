@@ -36,6 +36,7 @@ jpeg-decoder = "0.3.2"
 chrono = { version = "0.4.45", features = ["clock"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 tempfile = "3.27.0"
+img-parts = "0.4"
 
 
 # The OS credential store of each platform (the SFTP password lives there).

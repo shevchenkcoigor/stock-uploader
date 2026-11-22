@@ -1,4 +1,4 @@
-//! Read access to the same `state.db` the Python app uses (the schema is owned by Python for now).
+//! Where `state.db` lives and how it is opened.
 
 use std::path::PathBuf;
 
@@ -15,6 +15,11 @@ pub fn db_path() -> PathBuf {
         return PathBuf::from(path);
     }
     prefs::db_path_override().unwrap_or_else(|| prefs::legacy_data_dir().join(DB_FILE_NAME))
+}
+
+/// Where the prepared copies of the pictures are written: next to the database.
+pub fn export_dir() -> PathBuf {
+    db_path().parent().map_or_else(|| PathBuf::from("export"), |dir| dir.join("export"))
 }
 
 /// Opens the database read-only; `None` when it does not exist yet (an empty app).

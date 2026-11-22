@@ -1,18 +1,19 @@
-//! The pipeline core, ported from the Python `adobe_stock` package. The SQLite schema and the
-//! on-disk formats stay identical, so the PySide app and this app can work on the same files.
+//! The pipeline core: scanning, captioning, preparing copies with embedded metadata, uploading, and the
+//! SQLite state they all share.
 
 pub mod backup;
 pub mod caption;
 pub mod caption_run;
 pub mod categories;
-pub mod csv_batches;
-pub mod csv_build;
 pub mod describe;
+pub mod embed;
+pub mod export;
 pub mod imaging;
-pub mod metadata_csv;
+pub mod metadata;
 pub mod scan;
 pub mod sftp;
 pub mod state;
+pub mod submit;
 pub mod upload;
 pub mod validate;
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import type { QueueFile } from './api'
-import { batchStatusText, errorsWord, progressText, rowsFromQueue, sortedRows, summaryText, totalsOf } from './upload'
+import type { PrepareReport, QueueFile } from './api'
+import { batchStatusText, errorsWord, prepareTrouble, progressText, rowsFromQueue, sortedRows, summaryText, totalsOf } from './upload'
 
 const file = (filename: string, status: string, size = 100, error: string | null = null): QueueFile => ({
   path: `/r/${filename}`,
@@ -49,5 +49,41 @@ describe('upload queue', () => {
     expect(batchStatusText([])).toBe('—')
     expect(batchStatusText([{ status: 'pending', n: 3 }])).toBe('Описан')
     expect(batchStatusText([{ status: 'uploaded', n: 1 }, { status: 'pending', n: 2 }])).toBe('Описан: 2, На SFTP: 1')
+  })
+})
+
+describe('prepare trouble', () => {
+  const report = (over: Partial<PrepareReport> = {}): PrepareReport => ({
+    batch: 1,
+    total: 3,
+    prepared: 3,
+    current: 0,
+    problems: [],
+    failed: [],
+    stopped: false,
+    ...over,
+  })
+
+  test('is empty when every copy is ready', () => {
+    expect(prepareTrouble(report())).toBe('')
+  })
+
+  test('names the first problems and counts the rest', () => {
+    const problems = ['a.jpg: no keywords', 'b.jpg: empty title', 'c.jpg: no keywords', 'd.jpg: no keywords', 'e.jpg: no keywords']
+    const text = prepareTrouble(report({ problems, prepared: 0 }))
+    expect(text).toContain('a.jpg: no keywords')
+    expect(text).toContain('c.jpg: no keywords')
+    expect(text).not.toContain('d.jpg')
+    expect(text).toContain('ещё 2')
+  })
+
+  test('reports files whose copy could not be written', () => {
+    const text = prepareTrouble(report({ prepared: 2, failed: ['b.jpg: не читается как JPEG'] }))
+    expect(text).toContain('b.jpg')
+    expect(text).toContain('1')
+  })
+
+  test('says so when preparation was paused', () => {
+    expect(prepareTrouble(report({ stopped: true, prepared: 1 }))).toContain('приостановлена')
   })
 })
