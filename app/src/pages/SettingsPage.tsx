@@ -149,14 +149,6 @@ export function SettingsPage() {
               directory={false}
             />
           </Field>
-          <Field label="Папка для CSV">
-            <PathField
-              value={draft.csvDir}
-              placeholder={view.defaultCsvDir}
-              onChange={(csvDir) => change({ csvDir })}
-              directory
-            />
-          </Field>
         </Section>
 
         <Section title="Внешний вид">

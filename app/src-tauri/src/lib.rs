@@ -2,7 +2,6 @@ mod checks;
 pub mod core;
 mod db;
 mod caption_cmd;
-mod csv_cmd;
 mod describe_cmd;
 mod error;
 mod events;
@@ -34,15 +33,12 @@ pub fn run() {
             scan_cmd::scan_start,
             scan_cmd::scan_cancel,
             scan_cmd::problem_files,
-            csv_cmd::csv_overview,
-            csv_cmd::csv_batch_rows,
-            csv_cmd::csv_build,
-            csv_cmd::csv_mark_submitted,
             upload_cmd::upload_overview,
             upload_cmd::upload_queue,
             upload_cmd::upload_prepare,
             upload_cmd::upload_start,
             upload_cmd::upload_pause,
+            upload_cmd::upload_mark_submitted,
             caption_cmd::caption_models,
             caption_cmd::caption_start,
             caption_cmd::caption_cancel,

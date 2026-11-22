@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pager } from '../components/Pager'
 import { Thumb } from '../components/Thumb'
 import {
-  csvApi,
   filesApi,
   uploadApi,
   type PendingBatch,
@@ -164,7 +163,7 @@ export function UploadPage({ active }: PageProps) {
     if (!agreed) return
     setRunning(true)
     try {
-      const report = await csvApi.markSubmitted(batch)
+      const report = await uploadApi.markSubmitted(batch)
       const warnings = report.warnings.map((warning) => `ВНИМАНИЕ ${warning}.`).join(' ')
       say(`Отмечено отправленными: ${report.count}. ${warnings}`.trim(), report.count === 0)
     } catch (reason) {

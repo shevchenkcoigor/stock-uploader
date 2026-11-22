@@ -5,16 +5,15 @@ pub mod backup;
 pub mod caption;
 pub mod caption_run;
 pub mod categories;
-pub mod csv_batches;
-pub mod csv_build;
 pub mod describe;
 pub mod embed;
 pub mod export;
 pub mod imaging;
-pub mod metadata_csv;
+pub mod metadata;
 pub mod scan;
 pub mod sftp;
 pub mod state;
+pub mod submit;
 pub mod upload;
 pub mod validate;
 

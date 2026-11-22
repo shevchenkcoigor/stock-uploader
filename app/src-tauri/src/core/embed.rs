@@ -1,5 +1,5 @@
 //! Writing the title, description and keywords into a copy of a JPEG (XMP + IPTC), the way
-//! Lightroom does, so Adobe Stock picks them up on upload without a CSV.
+//! Lightroom does, so Adobe Stock picks them up on upload.
 
 mod iptc;
 mod xmp;

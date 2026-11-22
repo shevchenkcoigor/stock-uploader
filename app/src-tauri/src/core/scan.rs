@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use super::metadata_csv::{check_items, read_source, Item, DEFAULT_AI_TITLE_LABEL};
+use super::metadata::{check_items, read_source, Item, DEFAULT_AI_TITLE_LABEL};
 use super::state::{self, ProgressFn, ScanResult};
 use super::validate::validate_image;
 use crate::error::{AppError, AppResult};

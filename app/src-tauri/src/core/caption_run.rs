@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 
 use super::caption::{caption_group, CaptionResult, ClaudeCallError};
-use super::metadata_csv::{check_items, with_ai_label, Item};
+use super::metadata::{check_items, with_ai_label, Item};
 use super::state::{self, Generated};
 use crate::error::AppResult;
 

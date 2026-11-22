@@ -16,7 +16,7 @@ const LEGACY_PLIST: &str = "com.adobe-stock-uploader.Adobe Stock Uploader.plist"
 
 pub type PrefMap = BTreeMap<String, String>;
 
-/// `~/Library/Application Support/Adobe Stock Uploader` — where the PySide app keeps state.db and csv/.
+/// `~/Library/Application Support/Adobe Stock Uploader` — where state.db has always lived.
 pub fn legacy_data_dir() -> PathBuf {
     dirs::data_dir().unwrap_or_default().join(LEGACY_APP_DIR)
 }

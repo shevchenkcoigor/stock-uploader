@@ -1,5 +1,5 @@
 //! Preparing a batch for upload: a copy of every pending picture with its title and keywords embedded
-//! (replaces the Adobe CSV). The database stays the source of truth; the copies are only output.
+//! The database stays the source of truth; the copies are only output.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::embed::{self, EmbedMeta};
-use super::metadata_csv::{check_items, Item};
+use super::metadata::{check_items, Item};
 use super::state;
 use crate::error::AppResult;
 
@@ -109,7 +109,7 @@ fn record_export(conn: &Connection, source: &Path, copy: &Path, fingerprint: &st
 
 /// Makes (or refreshes) the copy of every pending file of `batch_id` under `export_dir`, with its title and
 /// keywords embedded. Copies that already match the database are left alone. Invalid metadata blocks the whole
-/// batch, as it did for the CSV.
+/// batch.
 pub fn prepare_batch(
     conn: &Connection,
     batch_id: i64,

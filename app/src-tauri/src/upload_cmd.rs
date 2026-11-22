@@ -6,9 +6,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::core::export::{self, PrepareReport};
+use crate::core::submit::{self, SubmittedReport};
 use crate::core::sftp::{self, Login, Uploader};
 use crate::core::upload::{self, UploadReport};
 use crate::core::{backup, state};
+use crate::describe_cmd::mutate;
 use crate::error::{AppError, AppResult};
 use crate::scan_cmd::ScanControl;
 use crate::{db, settings};
@@ -155,4 +157,10 @@ pub async fn upload_start(app: AppHandle, control: State<'_, UploadControl>, bat
 #[tauri::command]
 pub fn upload_pause(control: State<'_, UploadControl>) {
     control.0.request_stop();
+}
+
+/// Records that the batch was submitted in the portal (a manual step).
+#[tauri::command]
+pub async fn upload_mark_submitted(batch: i64) -> AppResult<SubmittedReport> {
+    mutate(move |conn| submit::mark_submitted(conn, batch)).await
 }
