@@ -6,16 +6,6 @@ use serde::Serialize;
 use crate::core::{backup, describe, state};
 use crate::db;
 use crate::error::{AppError, AppResult};
-use crate::prefs;
-
-const DEFAULT_BATCH_SIZE: usize = 1000;
-
-fn batch_size() -> usize {
-    prefs::load()
-        .ok()
-        .and_then(|map| prefs::text(&map, "batch_size", "").trim().parse().ok())
-        .unwrap_or(DEFAULT_BATCH_SIZE)
-}
 
 /// Runs a change against the database on a worker thread: guarded and backed up before and after.
 pub(crate) async fn mutate<T: Send + 'static>(work: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static) -> AppResult<T> {
@@ -55,33 +45,29 @@ pub async fn save_metadata(filename: String, title: String, keywords: Vec<String
 pub struct BulkResult {
     edited: Option<usize>,
     moved: Option<usize>,
-    new_batches: usize,
 }
 
 /// A keyword and/or category for several files, and/or a new status; empty parts change nothing.
 #[tauri::command]
 pub async fn bulk_apply(names: Vec<String>, tag: String, category: Option<String>, status: Option<String>) -> AppResult<BulkResult> {
-    let size = batch_size();
     mutate(move |conn| {
         let wants_edit = !tag.trim().is_empty() || category.is_some();
         let edited = wants_edit.then(|| state::bulk_edit(conn, &names, &tag, category.as_deref())).transpose()?;
-        let moved = status.as_deref().map(|target| describe::set_status(conn, &names, target, size)).transpose()?;
-        Ok(BulkResult { edited, moved: moved.as_ref().map(|report| report.count), new_batches: moved.map_or(0, |report| report.new_batches) })
+        let moved = status.as_deref().map(|target| describe::set_status(conn, &names, target)).transpose()?;
+        Ok(BulkResult { edited, moved: moved.as_ref().map(|report| report.count) })
     })
     .await
 }
 
 #[tauri::command]
 pub async fn set_files_status(names: Vec<String>, status: String) -> AppResult<describe::ApproveReport> {
-    let size = batch_size();
-    mutate(move |conn| describe::set_status(conn, &names, &status, size)).await
+    mutate(move |conn| describe::set_status(conn, &names, &status)).await
 }
 
 /// Releases reviewed files into the upload queue; no names approves all of them.
 #[tauri::command]
 pub async fn approve_files(names: Option<Vec<String>>) -> AppResult<describe::ApproveReport> {
-    let size = batch_size();
-    mutate(move |conn| describe::approve(conn, names.as_deref(), size)).await
+    mutate(move |conn| describe::approve(conn, names.as_deref())).await
 }
 
 /// Pixel sizes from the file headers (no decoding); (0, 0) when a file cannot be read.

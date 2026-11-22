@@ -118,8 +118,8 @@ describe('caption helpers', () => {
   })
 
   test('summarises a run', () => {
-    const base = { total: 10, captioned: 8, flagged: ['a: x', 'b: y'], newBatches: 1, stopped: false }
-    expect(captionSummary(base)).toBe('Подписано: 8 из 10 · на проверке: 2 · новых батчей: 1')
+    const base = { total: 10, captioned: 8, flagged: ['a: x', 'b: y'], stopped: false }
+    expect(captionSummary(base)).toBe('Подписано: 8 из 10 · на проверке: 2')
     expect(captionSummary({ ...base, stopped: true })).toMatch(/отменено$/)
     expect(captionSummary({ ...base, total: 0 })).toMatch(/^Нечего подписывать/)
   })

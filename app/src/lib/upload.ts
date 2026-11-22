@@ -1,8 +1,7 @@
 import type { PrepareReport, QueueFile } from './api'
 import { formatSize } from './describe'
-import { viewOf } from './status'
 
-export type QueueState = 'failed' | 'uploading' | 'queued' | 'done'
+export type QueueState = 'failed' | 'uploading' | 'queued' | 'done' | 'submitted'
 export type UploadSort = 'name' | 'size' | 'progress' | 'status'
 
 export interface UploadRow {
@@ -17,6 +16,8 @@ export interface UploadRow {
 export interface QueueTotals {
   total: number
   done: number
+  /** On SFTP but not yet marked submitted. */
+  uploaded: number
   failed: number
   sentBytes: number
   totalBytes: number
@@ -35,6 +36,7 @@ export const STATE_VIEWS: Record<QueueState, { label: string; dot: string; rank:
   uploading: { label: 'Загружается', dot: 'bg-accent', rank: 1 },
   queued: { label: 'В очереди', dot: 'bg-ink-muted', rank: 2 },
   done: { label: 'На SFTP', dot: 'bg-success', rank: 3 },
+  submitted: { label: 'Отправлен', dot: 'bg-success', rank: 4 },
 }
 
 const DONE_STATUSES = ['uploaded', 'submitted']
@@ -47,6 +49,7 @@ export function rowsFromQueue(files: QueueFile[], running: boolean, current: Cur
   const target = running ? (current?.file ?? files.find((f) => !DONE_STATUSES.includes(f.status))?.filename) : null
   return files.map((file) => {
     const base = { filename: file.filename, path: file.path, size: file.size }
+    if (file.status === 'submitted') return { ...base, state: 'submitted', progress: 1 }
     if (DONE_STATUSES.includes(file.status)) return { ...base, state: 'done', progress: 1 }
     if (file.filename === target) {
       const fraction = current?.file === file.filename && current.size > 0 ? current.sent / current.size : 0
@@ -59,7 +62,8 @@ export function rowsFromQueue(files: QueueFile[], running: boolean, current: Cur
 export function totalsOf(rows: UploadRow[]): QueueTotals {
   return {
     total: rows.length,
-    done: rows.filter((row) => row.state === 'done').length,
+    done: rows.filter((row) => row.state === 'done' || row.state === 'submitted').length,
+    uploaded: rows.filter((row) => row.state === 'done').length,
     failed: rows.filter((row) => row.state === 'failed').length,
     sentBytes: rows.reduce((sum, row) => sum + row.size * row.progress, 0),
     totalBytes: rows.reduce((sum, row) => sum + row.size, 0),
@@ -102,17 +106,17 @@ export function progressText(totals: QueueTotals): string {
   return `${percent}% · ${sent.slice(0, -3)} из ${formatSize(totals.totalBytes)}`
 }
 
-/** A batch's status for people: one word when all its files share a status, else the counts. */
-export function batchStatusText(counts: ReadonlyArray<{ status: string; n: number }>): string {
-  if (counts.length === 0) return '—'
-  const ordered = [...counts].sort((a, b) => viewOf(a.status).rank - viewOf(b.status).rank)
-  if (ordered.length === 1) return viewOf(ordered[0].status).label
-  return ordered.map(({ status, n }) => `${viewOf(status).label}: ${n}`).join(', ')
+/** What the «Загрузить» button will do: how many files go out and how many are skipped as already on SFTP. */
+export function uploadHint(totals: QueueTotals): string {
+  const waiting = totals.total - totals.done
+  if (totals.total === 0) return 'Нет файлов для загрузки'
+  if (waiting === 0) return 'Все файлы уже на SFTP: загружать нечего'
+  return `Будет загружено: ${waiting}. Уже на SFTP, не загружаются повторно: ${totals.done}`
 }
 
 const SHOWN_PROBLEMS = 3
 
-/** Why the batch cannot go to SFTP after preparing it; empty when every copy is ready. */
+/** Why the files cannot go to SFTP after preparing it; empty when every copy is ready. */
 export function prepareTrouble(report: PrepareReport): string {
   if (report.problems.length > 0) {
     const shown = report.problems.slice(0, SHOWN_PROBLEMS).join('; ')

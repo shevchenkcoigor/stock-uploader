@@ -33,7 +33,6 @@ pub fn run() {
             scan_cmd::scan_start,
             scan_cmd::scan_cancel,
             scan_cmd::problem_files,
-            upload_cmd::upload_overview,
             upload_cmd::upload_queue,
             upload_cmd::upload_prepare,
             upload_cmd::upload_start,

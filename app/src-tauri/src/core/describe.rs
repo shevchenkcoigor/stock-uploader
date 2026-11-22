@@ -1,4 +1,4 @@
-//! Description-page operations that also log and batch.
+//! Description-page operations that also log.
 
 use rusqlite::Connection;
 
@@ -9,30 +9,27 @@ use crate::error::AppResult;
 #[serde(rename_all = "camelCase")]
 pub struct ApproveReport {
     pub count: usize,
-    pub new_batches: usize,
 }
 
-/// Moves files to `status` by hand; files that become "described" are put into batches as usual.
-pub fn set_status(conn: &Connection, names: &[String], status: &str, batch_size: usize) -> AppResult<ApproveReport> {
+/// Moves files to `status` by hand.
+pub fn set_status(conn: &Connection, names: &[String], status: &str) -> AppResult<ApproveReport> {
     let count = state::set_status(conn, names, status)?;
-    let new_batches = state::assign_batches(conn, Some(batch_size))?;
     state::log_event(
         conn,
         "status",
-        &format!("{count} of {} files moved to {status}, new batches {new_batches}", names.len()),
+        &format!("{count} of {} files moved to {status}", names.len()),
         "info",
         None,
     )?;
-    Ok(ApproveReport { count, new_batches })
+    Ok(ApproveReport { count })
 }
 
 /// Releases reviewed files into the upload queue; `None` approves all of them.
-pub fn approve(conn: &Connection, names: Option<&[String]>, batch_size: usize) -> AppResult<ApproveReport> {
+pub fn approve(conn: &Connection, names: Option<&[String]>) -> AppResult<ApproveReport> {
     let count = state::approve_reviewed(conn, names)?;
-    let new_batches = state::assign_batches(conn, Some(batch_size))?;
     let scope = names.map_or_else(|| "all".to_string(), |list| list.join(", "));
-    state::log_event(conn, "approve", &format!("approved {count} files ({scope}), new batches {new_batches}"), "info", None)?;
-    Ok(ApproveReport { count, new_batches })
+    state::log_event(conn, "approve", &format!("approved {count} files ({scope})"), "info", None)?;
+    Ok(ApproveReport { count })
 }
 
 #[cfg(test)]
@@ -103,25 +100,25 @@ mod tests {
     #[test]
     fn status_moves_need_text_except_back_to_new() {
         let conn = db_with(&[("a.jpg", "pending", "T", &["k"]), ("b.jpg", "needs_metadata", "", &[]), ("s.jpg", "submitted", "T", &["k"])]);
-        let report = set_status(&conn, &names(&["a.jpg", "b.jpg", "s.jpg"]), "review", 1000).unwrap();
+        let report = set_status(&conn, &names(&["a.jpg", "b.jpg", "s.jpg"]), "review").unwrap();
         assert_eq!(report.count, 1, "b has no text and s is final");
         assert_eq!(status_of(&conn, "a.jpg"), "review");
         let error: Option<String> = conn.query_row("SELECT error FROM files WHERE filename = 'a.jpg'", [], |r| r.get(0)).unwrap();
         assert_eq!(error.as_deref(), Some(state::MANUAL_REVIEW_REASON));
-        set_status(&conn, &names(&["a.jpg"]), "needs_metadata", 1000).unwrap();
+        set_status(&conn, &names(&["a.jpg"]), "needs_metadata").unwrap();
         assert_eq!(status_of(&conn, "a.jpg"), "needs_metadata");
         assert!(state::set_status(&conn, &names(&["a.jpg"]), "invalid").is_err());
     }
 
     #[test]
-    fn approving_releases_flagged_files_into_batches_and_logs() {
+    fn approving_releases_flagged_files_into_the_queue_and_logs() {
         let conn = db_with(&[("a.jpg", "review", "T", &["k"]), ("b.jpg", "review", "T", &["k"])]);
-        let report = approve(&conn, Some(&names(&["a.jpg"])), 1000).unwrap();
-        assert_eq!((report.count, report.new_batches), (1, 1));
+        let report = approve(&conn, Some(&names(&["a.jpg"]))).unwrap();
+        assert_eq!(report.count, 1);
         assert_eq!(status_of(&conn, "a.jpg"), "pending");
         assert_eq!(status_of(&conn, "b.jpg"), "review");
-        assert_eq!(approve(&conn, None, 1000).unwrap().count, 1);
+        assert_eq!(approve(&conn, None).unwrap().count, 1);
         let message: String = conn.query_row("SELECT message FROM events ORDER BY id LIMIT 1", [], |r| r.get(0)).unwrap();
-        assert_eq!(message, "approved 1 files (a.jpg), new batches 1");
+        assert_eq!(message, "approved 1 files (a.jpg)");
     }
 }

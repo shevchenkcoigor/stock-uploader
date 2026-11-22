@@ -7,10 +7,10 @@ use crate::secrets;
 const DEFAULT_SFTP_HOST: &str = "sftp.contributor.adobestock.com";
 const DEFAULT_SFTP_PORT: u32 = 22;
 const DEFAULT_AI_TITLE_LABEL: &str = "Generative AI";
-const DEFAULT_BATCH_SIZE: u32 = 1000;
+const DEFAULT_CAPTION_LIMIT: u32 = 1000;
 const DEFAULT_CAPTION_WORKERS: u32 = 1;
 const DEFAULT_IMAGES_PER_CALL: u32 = 5;
-const MAX_BATCH_SIZE: u32 = 20_000;
+const MAX_CAPTION_LIMIT: u32 = 20_000;
 const MAX_CAPTION_WORKERS: u32 = 8;
 const MAX_IMAGES_PER_CALL: u32 = 20;
 const MAX_PORT: u32 = 65_535;
@@ -25,7 +25,6 @@ pub struct SettingsDto {
     pub sftp_port: u32,
     pub sftp_user: String,
     pub ai_title_label: String,
-    pub batch_size: u32,
     pub caption_limit: u32,
     pub caption_workers: u32,
     pub caption_per_call: u32,
@@ -45,15 +44,13 @@ fn number(map: &PrefMap, key: &str, default: u32) -> u32 {
 }
 
 fn from_map(map: &PrefMap) -> SettingsDto {
-    let batch_size = number(map, "batch_size", DEFAULT_BATCH_SIZE);
     SettingsDto {
         db_path: prefs::text(map, "db_path", ""),
         sftp_host: prefs::text(map, "sftp_host", DEFAULT_SFTP_HOST),
         sftp_port: number(map, "sftp_port", DEFAULT_SFTP_PORT),
         sftp_user: prefs::text(map, "sftp_user", ""),
         ai_title_label: prefs::text(map, "ai_title_label", DEFAULT_AI_TITLE_LABEL),
-        batch_size,
-        caption_limit: number(map, "caption_limit", batch_size),
+        caption_limit: number(map, "caption_limit", DEFAULT_CAPTION_LIMIT),
         caption_workers: number(map, "caption_workers", DEFAULT_CAPTION_WORKERS),
         caption_per_call: number(map, "caption_per_call", DEFAULT_IMAGES_PER_CALL),
         claude_path: prefs::text(map, "claude_path", ""),
@@ -89,8 +86,7 @@ fn validated(dto: &SettingsDto) -> AppResult<SettingsDto> {
         return Err(AppError::Invalid("SFTP хост не может быть пустым".into()));
     }
     in_range("SFTP порт", dto.sftp_port, MAX_PORT)?;
-    in_range("Файлов в батче", dto.batch_size, MAX_BATCH_SIZE)?;
-    in_range("Файлов за одно нажатие «Caption»", dto.caption_limit, MAX_BATCH_SIZE)?;
+    in_range("Файлов за одно нажатие «Caption»", dto.caption_limit, MAX_CAPTION_LIMIT)?;
     in_range("Параллельных вызовов Claude", dto.caption_workers, MAX_CAPTION_WORKERS)?;
     in_range("Картинок в одном вызове", dto.caption_per_call, MAX_IMAGES_PER_CALL)?;
     if !THEMES.contains(&dto.theme.as_str()) {
@@ -121,7 +117,6 @@ fn merged(map: &PrefMap, dto: &SettingsDto) -> PrefMap {
         ("sftp_port", dto.sftp_port.to_string()),
         ("sftp_user", dto.sftp_user.clone()),
         ("ai_title_label", dto.ai_title_label.clone()),
-        ("batch_size", dto.batch_size.to_string()),
         ("caption_limit", dto.caption_limit.to_string()),
         ("caption_workers", dto.caption_workers.to_string()),
         ("caption_per_call", dto.caption_per_call.to_string()),
@@ -204,7 +199,6 @@ mod tests {
     fn defaults_match_the_python_app() {
         let dto = sample();
         assert_eq!(dto.sftp_host, DEFAULT_SFTP_HOST);
-        assert_eq!(dto.batch_size, 1000);
         assert_eq!(dto.caption_limit, 1000);
         assert_eq!(dto.caption_workers, 1);
         assert_eq!(dto.caption_per_call, 5);

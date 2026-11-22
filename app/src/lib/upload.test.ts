@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PrepareReport, QueueFile } from './api'
-import { batchStatusText, errorsWord, prepareTrouble, progressText, rowsFromQueue, sortedRows, summaryText, totalsOf } from './upload'
+import { errorsWord, prepareTrouble, progressText, rowsFromQueue, sortedRows, summaryText, totalsOf, uploadHint } from './upload'
 
 const file = (filename: string, status: string, size = 100, error: string | null = null): QueueFile => ({
   path: `/r/${filename}`,
@@ -45,16 +45,21 @@ describe('upload queue', () => {
     expect([1, 2, 5, 11, 12, 21, 24].map(errorsWord)).toEqual(['ошибка', 'ошибки', 'ошибок', 'ошибок', 'ошибок', 'ошибка', 'ошибки'])
   })
 
-  test('batch status text', () => {
-    expect(batchStatusText([])).toBe('—')
-    expect(batchStatusText([{ status: 'pending', n: 3 }])).toBe('Описан')
-    expect(batchStatusText([{ status: 'uploaded', n: 1 }, { status: 'pending', n: 2 }])).toBe('Описан: 2, На SFTP: 1')
+  test('submitted files are shown as done but are not counted as waiting to be submitted', () => {
+    const rows = rowsFromQueue([file('a.jpg', 'uploaded'), file('b.jpg', 'submitted'), file('c.jpg', 'pending')], false, null)
+    expect(rows.map((row) => row.state)).toEqual(['done', 'submitted', 'queued'])
+    expect(totalsOf(rows)).toMatchObject({ total: 3, done: 2, uploaded: 1 })
+  })
+
+  test('the upload hint says how many go out and how many are skipped', () => {
+    expect(uploadHint(totalsOf(rowsFromQueue(files, false, null)))).toBe('Будет загружено: 3. Уже на SFTP, не загружаются повторно: 1')
+    expect(uploadHint(totalsOf(rowsFromQueue([file('a.jpg', 'uploaded')], false, null)))).toBe('Все файлы уже на SFTP: загружать нечего')
+    expect(uploadHint(totalsOf([]))).toBe('Нет файлов для загрузки')
   })
 })
 
 describe('prepare trouble', () => {
   const report = (over: Partial<PrepareReport> = {}): PrepareReport => ({
-    batch: 1,
     total: 3,
     prepared: 3,
     current: 0,

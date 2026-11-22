@@ -1,4 +1,4 @@
-//! Preparing a batch for upload: a copy of every pending picture with its title and keywords embedded
+//! Preparing the pending files for upload: a copy of every pending picture with its title and keywords embedded
 //! The database stays the source of truth; the copies are only output.
 
 use std::collections::HashSet;
@@ -21,7 +21,6 @@ const KEYWORD_SEPARATOR: char = '\u{1e}';
 #[derive(Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareReport {
-    pub batch: i64,
     pub total: usize,
     /// Copies written (or rewritten) now.
     pub prepared: usize,
@@ -34,7 +33,7 @@ pub struct PrepareReport {
     pub stopped: bool,
 }
 
-/// Whether a batch may be uploaded: every pending file needs a copy made from its current metadata.
+/// Whether the pending files may be uploaded: every pending file needs a copy made from its current metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExportReadiness {
@@ -51,9 +50,9 @@ pub fn metadata_fingerprint(title: &str, keywords: &[String]) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Where the copy of `filename` from `batch_id` lives.
-pub fn export_path_for(export_dir: &Path, batch_id: i64, filename: &str) -> PathBuf {
-    export_dir.join(batch_id.to_string()).join(filename)
+/// Where the copy of `filename` lives (the SFTP name is flat and unique, so the folder is flat too).
+pub fn export_path_for(export_dir: &Path, filename: &str) -> PathBuf {
+    export_dir.join(filename)
 }
 
 /// A pending file with what its copy was made from.
@@ -81,12 +80,12 @@ impl PendingRow {
     }
 }
 
-fn pending_rows(conn: &Connection, batch_id: i64) -> AppResult<Vec<PendingRow>> {
+fn pending_rows(conn: &Connection) -> AppResult<Vec<PendingRow>> {
     let mut stmt = conn.prepare(
         "SELECT path, filename, title, keywords, export_path, embedded_hash FROM files
-         WHERE status = ? AND batch_id = ? ORDER BY id",
+         WHERE status = ? ORDER BY id",
     )?;
-    let rows = stmt.query_map(params![state::PENDING, batch_id], |row| {
+    let rows = stmt.query_map(params![state::PENDING], |row| {
         Ok(PendingRow {
             source: PathBuf::from(row.get::<_, String>(0)?),
             filename: row.get(1)?,
@@ -107,20 +106,19 @@ fn record_export(conn: &Connection, source: &Path, copy: &Path, fingerprint: &st
     Ok(())
 }
 
-/// Makes (or refreshes) the copy of every pending file of `batch_id` under `export_dir`, with its title and
-/// keywords embedded. Copies that already match the database are left alone. Invalid metadata blocks the whole
-/// batch.
-pub fn prepare_batch(
+/// Makes (or refreshes) the copy of every pending file under `export_dir`, with its title and
+/// keywords embedded. Copies that already match the database are left alone. Invalid metadata blocks all of
+/// them.
+pub fn prepare_pending(
     conn: &Connection,
-    batch_id: i64,
     export_dir: &Path,
     ai_label: &str,
     on_progress: &mut dyn FnMut(usize, usize, &str),
     should_stop: &dyn Fn() -> bool,
 ) -> AppResult<PrepareReport> {
-    let rows = pending_rows(conn, batch_id)?;
+    let rows = pending_rows(conn)?;
     let total = rows.len();
-    let mut report = PrepareReport { batch: batch_id, total, ..PrepareReport::default() };
+    let mut report = PrepareReport { total, ..PrepareReport::default() };
     if rows.is_empty() {
         return Ok(report);
     }
@@ -128,18 +126,18 @@ pub fn prepare_batch(
     let names: HashSet<String> = rows.iter().map(|row| row.filename.clone()).collect();
     report.problems = check_items(&items, &names, ai_label);
     if !report.problems.is_empty() {
-        let message = format!("batch {batch_id}: not prepared, {} problems", report.problems.len());
+        let message = format!("not prepared, {} problems", report.problems.len());
         state::log_event(conn, "prepare", &message, "warning", None)?;
         return Ok(report);
     }
-    state::log_event(conn, "prepare", &format!("batch {batch_id}: started, {total} files"), "info", None)?;
+    state::log_event(conn, "prepare", &format!("started, {total} files"), "info", None)?;
     for (index, row) in rows.iter().enumerate() {
         if should_stop() {
             report.stopped = true;
             break;
         }
         on_progress(index, total, &row.filename);
-        let copy = export_path_for(export_dir, batch_id, &row.filename);
+        let copy = export_path_for(export_dir, &row.filename);
         let fingerprint = row.fingerprint();
         if row.embedded_hash == fingerprint && row.export_path == copy.to_string_lossy() && copy.exists() {
             report.current += 1;
@@ -160,7 +158,7 @@ pub fn prepare_batch(
     on_progress(total, total, "");
     let level = if report.failed.is_empty() { "info" } else { "error" };
     let outcome = format!(
-        "batch {batch_id}: {}, {} prepared, {} already current, {} failed",
+        "{}, {} prepared, {} already current, {} failed",
         if report.stopped { "cancelled" } else { "finished" },
         report.prepared,
         report.current,
@@ -170,9 +168,9 @@ pub fn prepare_batch(
     Ok(report)
 }
 
-pub fn export_readiness(conn: &Connection, batch_id: i64) -> AppResult<ExportReadiness> {
+pub fn export_readiness(conn: &Connection) -> AppResult<ExportReadiness> {
     let mut readiness = ExportReadiness::Ready;
-    for row in pending_rows(conn, batch_id)? {
+    for row in pending_rows(conn)? {
         let has_copy = !row.embedded_hash.is_empty() && !row.export_path.is_empty() && Path::new(&row.export_path).exists();
         if !has_copy {
             return Ok(ExportReadiness::Missing);
@@ -184,16 +182,14 @@ pub fn export_readiness(conn: &Connection, batch_id: i64) -> AppResult<ExportRea
     Ok(readiness)
 }
 
-/// Why the batch cannot be uploaded; empty when it can.
-pub fn readiness_text(batch_id: i64, readiness: ExportReadiness) -> String {
+/// Why the files cannot be uploaded; empty when they can.
+pub fn readiness_text(readiness: ExportReadiness) -> String {
     match readiness {
         ExportReadiness::Ready => String::new(),
         ExportReadiness::Missing => {
-            format!("У батча {batch_id} нет подготовленных файлов: сначала подготовьте батч к загрузке.")
+            "Нет подготовленных файлов: сначала подготовьте их к загрузке.".to_string()
         }
-        ExportReadiness::Stale => format!(
-            "Подготовленные файлы батча {batch_id} устарели (название или ключевые слова изменились): подготовьте батч заново."
-        ),
+        ExportReadiness::Stale => "Подготовленные файлы устарели (название или ключевые слова изменились): подготовьте их заново.".to_string(),
     }
 }
 
@@ -215,13 +211,12 @@ mod tests {
     fn setup(count: usize) -> (tempfile::TempDir, Connection) {
         let dir = tempfile::tempdir().unwrap();
         let conn = state::open_db(&dir.path().join("state.db")).unwrap();
-        conn.execute("INSERT INTO batches (folder, part, created_at) VALUES ('/r', 1, 't')", []).unwrap();
         for index in 0..count {
             let path = dir.path().join(format!("p{index}.jpg"));
             write_jpeg(&path, index as u8 * 40);
             conn.execute(
-                "INSERT INTO files (path, filename, size, sha256, root, status, batch_id, title, keywords, category, updated_at)
-                 VALUES (?, ?, 5, ?, '/r', 'pending', 1, ?, '[\"sea\", \"surf\"]', '', 't')",
+                "INSERT INTO files (path, filename, size, sha256, root, status, title, keywords, category, updated_at)
+                 VALUES (?, ?, 5, ?, '/r', 'pending', ?, '[\"sea\", \"surf\"]', '', 't')",
                 rusqlite::params![
                     path.to_string_lossy(),
                     format!("p{index}.jpg"),
@@ -235,7 +230,7 @@ mod tests {
     }
 
     fn prepare(conn: &Connection, dir: &Path) -> PrepareReport {
-        prepare_batch(conn, 1, &dir.join("export"), LABEL, &mut |_, _, _| {}, &|| false).unwrap()
+        prepare_pending(conn, &dir.join("export"), LABEL, &mut |_, _, _| {}, &|| false).unwrap()
     }
 
     #[test]
@@ -245,7 +240,7 @@ mod tests {
         let report = prepare(&conn, dir.path());
         assert_eq!((report.total, report.prepared, report.current, report.failed.len()), (2, 2, 0, 0));
         assert!(report.problems.is_empty(), "{:?}", report.problems);
-        let copy = export_path_for(&dir.path().join("export"), 1, "p0.jpg");
+        let copy = export_path_for(&dir.path().join("export"), "p0.jpg");
         assert_eq!(read_embedded(&copy).unwrap().xmp.title.as_deref(), Some("Photo 0 Generative AI"));
         assert_eq!(read_embedded(&copy).unwrap().iptc.keywords, vec!["sea", "surf"]);
         for (index, original) in originals.iter().enumerate() {
@@ -255,29 +250,29 @@ mod tests {
         assert_eq!(stored, copy.to_string_lossy());
         let statuses: Vec<String> = conn.prepare("SELECT status FROM files").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
         assert!(statuses.iter().all(|status| status == "pending"));
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Ready);
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Ready);
     }
 
     #[test]
-    fn a_batch_is_missing_until_prepared_and_again_when_a_copy_disappears() {
+    fn files_are_missing_until_prepared_and_again_when_a_copy_disappears() {
         let (dir, conn) = setup(2);
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Missing);
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Missing);
         prepare(&conn, dir.path());
-        std::fs::remove_file(export_path_for(&dir.path().join("export"), 1, "p1.jpg")).unwrap();
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Missing);
+        std::fs::remove_file(export_path_for(&dir.path().join("export"), "p1.jpg")).unwrap();
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Missing);
     }
 
     #[test]
-    fn editing_metadata_makes_the_batch_stale_and_only_that_copy_is_rewritten() {
+    fn editing_metadata_makes_the_copies_stale_and_only_that_copy_is_rewritten() {
         let (dir, conn) = setup(2);
         prepare(&conn, dir.path());
         conn.execute("UPDATE files SET title = 'Edited later Generative AI' WHERE filename = 'p0.jpg'", []).unwrap();
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Stale);
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Stale);
         let report = prepare(&conn, dir.path());
         assert_eq!((report.prepared, report.current), (1, 1));
-        let copy = export_path_for(&dir.path().join("export"), 1, "p0.jpg");
+        let copy = export_path_for(&dir.path().join("export"), "p0.jpg");
         assert_eq!(read_embedded(&copy).unwrap().xmp.title.as_deref(), Some("Edited later Generative AI"));
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Ready);
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Ready);
     }
 
     #[test]
@@ -289,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_metadata_blocks_the_whole_batch_and_writes_nothing() {
+    fn invalid_metadata_blocks_all_files_and_writes_nothing() {
         let (dir, conn) = setup(2);
         conn.execute("UPDATE files SET keywords = '[]' WHERE filename = 'p1.jpg'", []).unwrap();
         let report = prepare(&conn, dir.path());
@@ -307,7 +302,7 @@ mod tests {
         let report = prepare(&conn, dir.path());
         assert_eq!((report.prepared, report.failed.len()), (2, 1));
         assert!(report.failed[0].starts_with("p1.jpg"), "{:?}", report.failed);
-        assert_eq!(export_readiness(&conn, 1).unwrap(), ExportReadiness::Missing);
+        assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Missing);
     }
 
     #[test]
@@ -318,18 +313,18 @@ mod tests {
             calls.set(calls.get() + 1);
             calls.get() > 1
         };
-        let report = prepare_batch(&conn, 1, &dir.path().join("export"), LABEL, &mut |_, _, _| {}, &stop_after_one).unwrap();
+        let report = prepare_pending(&conn, &dir.path().join("export"), LABEL, &mut |_, _, _| {}, &stop_after_one).unwrap();
         assert!(report.stopped);
         assert_eq!(report.prepared, 1);
     }
 
     #[test]
-    fn only_pending_files_of_the_batch_are_prepared() {
+    fn only_pending_files_are_prepared() {
         let (dir, conn) = setup(2);
         conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'p1.jpg'", []).unwrap();
         let report = prepare(&conn, dir.path());
         assert_eq!((report.total, report.prepared), (1, 1));
-        assert!(!export_path_for(&dir.path().join("export"), 1, "p1.jpg").exists());
+        assert!(!export_path_for(&dir.path().join("export"), "p1.jpg").exists());
     }
 
     #[test]
@@ -342,11 +337,10 @@ mod tests {
     }
 
     #[test]
-    fn readiness_texts_name_the_batch() {
-        assert_eq!(readiness_text(1, ExportReadiness::Ready), "");
-        assert!(readiness_text(7, ExportReadiness::Missing).contains("батч"));
-        assert!(readiness_text(7, ExportReadiness::Missing).contains('7'));
-        assert!(readiness_text(7, ExportReadiness::Stale).contains('7'));
+    fn readiness_texts_say_what_to_do() {
+        assert_eq!(readiness_text(ExportReadiness::Ready), "");
+        assert!(readiness_text(ExportReadiness::Missing).contains("подготовьте"));
+        assert!(readiness_text(ExportReadiness::Stale).contains("устарели"));
     }
 
     #[test]

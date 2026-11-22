@@ -19,23 +19,17 @@ vi.mock('@tauri-apps/api/event', () => ({
   },
 }))
 
-const BATCH = 7
-const prepared: PrepareReport = { batch: BATCH, total: 2, prepared: 2, current: 0, problems: [], failed: [], stopped: false }
-const sent: UploadReport = { batch: BATCH, total: 2, uploaded: 2, failed: [], error: null, blocked: null, stopped: false }
+const prepared: PrepareReport = { total: 2, prepared: 2, current: 0, problems: [], failed: [], stopped: false }
+const sent: UploadReport = { total: 2, uploaded: 2, failed: [], error: null, blocked: null, stopped: false }
 
-/** An in-memory stand-in for the Rust commands: a queue whose files turn `uploaded` when the batch is sent. */
+/** An in-memory stand-in for the Rust commands: a queue whose files turn `uploaded` when the files are sent. */
 function fakeBackend(overrides: { prepare?: PrepareReport; start?: UploadReport } = {}) {
   let files: QueueFile[] = ['a.jpg', 'b.jpg'].map((name) => ({ path: `/r/${name}`, filename: name, status: 'pending', size: 2048, error: null }))
   const calls: string[] = []
-  const submitted: SubmittedReport = { count: 2, warnings: [], waiting: [] }
+  const submitted: SubmittedReport = { count: 2 }
   invoke.mockImplementation(async (command: string) => {
     calls.push(command)
     switch (command) {
-      case 'upload_overview':
-        return {
-          batches: [{ batchId: BATCH, folder: '/r', part: 1, n: files.length }],
-          counts: [{ batchId: BATCH, status: files[0].status, n: files.length }],
-        }
       case 'upload_queue':
         return files
       case 'upload_prepare':
@@ -56,7 +50,7 @@ function fakeBackend(overrides: { prepare?: PrepareReport; start?: UploadReport 
         return null // thumbnails and anything else the page does not depend on
     }
   })
-  return { calls: () => calls.filter((name) => name.startsWith('upload_') && !['upload_overview', 'upload_queue'].includes(name)) }
+  return { calls: () => calls.filter((name) => name.startsWith('upload_') && name !== 'upload_queue') }
 }
 
 const renderPage = () => render(<UploadPage active navigate={() => undefined} />)
@@ -70,13 +64,14 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Upload page', () => {
-  test('shows the waiting batch and its files, and offers only the upload', async () => {
+  test('shows every file and offers only the upload', async () => {
     fakeBackend()
     renderPage()
 
     expect(await screen.findByText('a.jpg')).toBeTruthy()
     expect(screen.getByText('b.jpg')).toBeTruthy()
-    expect(screen.getByRole('combobox').textContent).toContain(`Батч ${BATCH}`)
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(button('Загрузить').getAttribute('title')).toBe('Будет загружено: 2. Уже на SFTP, не загружаются повторно: 0')
     expect((button('Загрузить') as HTMLButtonElement).disabled).toBe(false)
     expect((button('Отметить отправленным') as HTMLButtonElement).disabled).toBe(true)
   })
@@ -91,8 +86,8 @@ describe('Upload page', () => {
 
     expect(await screen.findByText('Загружено: 2 из 2, ошибок: 0')).toBeTruthy()
     expect(backend.calls()).toEqual(['upload_prepare', 'upload_start'])
-    expect(invoke).toHaveBeenCalledWith('upload_prepare', { batch: BATCH })
-    expect(invoke).toHaveBeenCalledWith('upload_start', { batch: BATCH })
+    expect(invoke).toHaveBeenCalledWith('upload_prepare')
+    expect(invoke).toHaveBeenCalledWith('upload_start')
     await waitFor(() => expect((button('Отметить отправленным') as HTMLButtonElement).disabled).toBe(false))
     expect((button('Загрузить') as HTMLButtonElement).disabled).toBe(true)
   })
@@ -110,14 +105,14 @@ describe('Upload page', () => {
   })
 
   test('a dropped connection is reported and the files stay in the queue', async () => {
-    fakeBackend({ start: { ...sent, uploaded: 0, error: 'cannot upload batch 7: нет соединения' } })
+    fakeBackend({ start: { ...sent, uploaded: 0, error: 'cannot upload: нет соединения' } })
     const user = userEvent.setup()
     renderPage()
     await screen.findByText('a.jpg')
 
     await user.click(button('Загрузить'))
 
-    expect(await screen.findByText(/Не удалось загрузить: cannot upload batch 7: нет соединения/)).toBeTruthy()
+    expect(await screen.findByText(/Не удалось загрузить: cannot upload: нет соединения/)).toBeTruthy()
     expect((button('Загрузить') as HTMLButtonElement).disabled).toBe(false)
   })
 
@@ -147,7 +142,26 @@ describe('Upload page', () => {
 
     ask.mockResolvedValueOnce(true)
     await user.click(button('Отметить отправленным'))
-    expect(await screen.findByText('Отмечено отправленными: 2.')).toBeTruthy()
-    expect(invoke).toHaveBeenCalledWith('upload_mark_submitted', { batch: BATCH })
+    expect(await screen.findByText('Отмечено отправленными: 2')).toBeTruthy()
+    expect(invoke).toHaveBeenCalledWith('upload_mark_submitted')
+  })
+})
+
+describe('Upload page with files already on SFTP', () => {
+  test('lists them as done, skips them on upload and explains it on the button', async () => {
+    invoke.mockImplementation(async (command: string) =>
+      command === 'upload_queue'
+        ? [
+            { path: '/r/a.jpg', filename: 'a.jpg', status: 'uploaded', size: 2048, error: null },
+            { path: '/r/b.jpg', filename: 'b.jpg', status: 'submitted', size: 2048, error: null },
+            { path: '/r/c.jpg', filename: 'c.jpg', status: 'pending', size: 2048, error: null },
+          ]
+        : null,
+    )
+    renderPage()
+
+    expect(await screen.findByText('c.jpg')).toBeTruthy()
+    expect(screen.getByText('Отправлен')).toBeTruthy()
+    expect(button('Загрузить').getAttribute('title')).toBe('Будет загружено: 1. Уже на SFTP, не загружаются повторно: 2')
   })
 })
