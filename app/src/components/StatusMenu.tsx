@@ -7,12 +7,10 @@ interface Props {
   status: string
   onPick: (status: string) => void
   disabled?: boolean
-  /** Fill the width and show a frame, like a form field. */
-  field?: boolean
 }
 
 /** The status as a chip; a click opens the list of statuses a person may set. */
-export function StatusMenu({ status, onPick, disabled, field }: Props) {
+export function StatusMenu({ status, onPick, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const holder = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -30,16 +28,14 @@ export function StatusMenu({ status, onPick, disabled, field }: Props) {
     }
   }, [open])
   return (
-    <div ref={holder} className={`relative ${field ? 'w-full' : 'inline-block'}`}>
+    <div ref={holder} className="relative inline-block">
       <button
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className={`flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
-          field ? 'h-9 w-full border border-line-strong bg-surface px-3' : 'h-8 px-1.5 hover:bg-sunken'
-        }`}
+        className="flex h-8 items-center rounded-md px-1.5 outline-none hover:bg-sunken focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
       >
         <StatusChip status={status} />
       </button>

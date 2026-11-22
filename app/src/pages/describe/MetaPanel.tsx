@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { StatusChip } from '../../components/StatusChip'
-import { StatusMenu } from '../../components/StatusMenu'
 import { TagEditor } from '../../components/TagEditor'
 import { filesApi, type FileRow, type ModelChoice } from '../../lib/api'
 import { CATEGORY_OPTIONS } from '../../lib/categories'
-import { RECAPTIONABLE, formatSize, modelTitle, resolutionText, type Dimensions } from '../../lib/describe'
+import { viewOf } from '../../lib/status'
+import { EDITABLE_STATUSES, RECAPTIONABLE, formatSize, modelTitle, resolutionText, type Dimensions } from '../../lib/describe'
 
 const AUTOSAVE_DELAY_MS = 700 // a pause in typing the title that saves it
 const PREVIEW_SIDE = 240
@@ -144,7 +144,19 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
           ))}
         </select>
         <span className={fieldLabel}>Статус</span>
-        <StatusMenu field status={row?.status ?? 'needs_metadata'} disabled={disabled} onPick={(status) => row && onStatus(row.filename, status)} />
+        <select
+          value={row?.status ?? ''}
+          disabled={disabled}
+          onChange={(event) => row && onStatus(row.filename, event.target.value)}
+          className={inputClass}
+        >
+          {row && !EDITABLE_STATUSES.includes(row.status) && <option value={row.status}>{viewOf(row.status).label}</option>}
+          {EDITABLE_STATUSES.map((key) => (
+            <option key={key} value={key}>
+              {viewOf(key).label}
+            </option>
+          ))}
+        </select>
         <div className="flex gap-2">
           <select
             value={caption.model}
