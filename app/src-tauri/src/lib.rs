@@ -8,6 +8,7 @@ mod events;
 mod files;
 mod prefs;
 mod scan_cmd;
+mod upload_cmd;
 mod secrets;
 mod settings;
 mod summary;
@@ -18,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(scan_cmd::ScanControl::default())
         .manage(caption_cmd::CaptionControl::default())
+        .manage(upload_cmd::UploadControl::default())
         .invoke_handler(tauri::generate_handler![
             summary::status_summary,
             events::search_events,
@@ -31,6 +33,10 @@ pub fn run() {
             scan_cmd::scan_start,
             scan_cmd::scan_cancel,
             scan_cmd::problem_files,
+            upload_cmd::upload_overview,
+            upload_cmd::upload_queue,
+            upload_cmd::upload_start,
+            upload_cmd::upload_pause,
             caption_cmd::caption_models,
             caption_cmd::caption_start,
             caption_cmd::caption_cancel,

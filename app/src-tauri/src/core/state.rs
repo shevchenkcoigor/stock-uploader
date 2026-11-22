@@ -685,3 +685,77 @@ pub fn record_error(conn: &Connection, path: &Path, error: &str) -> AppResult<()
     )?;
     Ok(())
 }
+
+/// A batch that still has pending files, with how many.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingBatch {
+    pub batch_id: i64,
+    pub folder: String,
+    pub part: i64,
+    pub n: i64,
+}
+
+/// Batches that still have pending files, oldest first, with their pending counts.
+pub fn pending_batches(conn: &Connection) -> AppResult<Vec<PendingBatch>> {
+    let mut stmt = conn.prepare(
+        "SELECT b.id, b.folder, b.part, COUNT(*) FROM files f JOIN batches b ON b.id = f.batch_id
+         WHERE f.status = ? GROUP BY b.id ORDER BY b.id",
+    )?;
+    let rows = stmt.query_map([PENDING], |row| {
+        Ok(PendingBatch { batch_id: row.get(0)?, folder: row.get(1)?, part: row.get(2)?, n: row.get(3)? })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// For every batch the number of its files per status: what the batch's own status is made of.
+pub fn batch_status_counts(conn: &Connection) -> AppResult<Vec<(i64, String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT batch_id, status, COUNT(*) FROM files WHERE batch_id IS NOT NULL
+         GROUP BY batch_id, status ORDER BY batch_id, status",
+    )?;
+    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// A file of a batch as the upload queue shows it.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueFile {
+    pub path: String,
+    pub filename: String,
+    pub status: String,
+    pub size: i64,
+    pub error: Option<String>,
+}
+
+/// Every file of a batch with its status, in upload order.
+pub fn batch_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<QueueFile>> {
+    let mut stmt =
+        conn.prepare("SELECT path, filename, status, size, error FROM files WHERE batch_id = ? ORDER BY id")?;
+    let rows = stmt.query_map([batch_id], |row| {
+        Ok(QueueFile {
+            path: row.get(0)?,
+            filename: row.get(1)?,
+            status: row.get(2)?,
+            size: row.get(3)?,
+            error: row.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Pending files of a batch as (local path, remote name).
+pub fn pending_files(conn: &Connection, batch_id: i64) -> AppResult<Vec<(PathBuf, String)>> {
+    let mut stmt = conn.prepare("SELECT path, filename FROM files WHERE status = ? AND batch_id = ? ORDER BY id")?;
+    let rows = stmt.query_map(params![PENDING, batch_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), row.get(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
+    conn.execute(
+        "UPDATE files SET status = ?, error = NULL, updated_at = ? WHERE path = ?",
+        params![UPLOADED, now(), path.to_string_lossy()],
+    )?;
+    Ok(())
+}

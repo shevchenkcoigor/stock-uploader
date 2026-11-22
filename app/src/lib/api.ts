@@ -111,6 +111,51 @@ export const captionApi = {
   cancel: () => invoke<void>('caption_cancel'),
 }
 
+export interface PendingBatch {
+  batchId: number
+  folder: string
+  part: number
+  n: number
+}
+
+export interface UploadOverview {
+  batches: PendingBatch[]
+  counts: Array<{ batchId: number; status: string; n: number }>
+}
+
+export interface QueueFile {
+  path: string
+  filename: string
+  status: string
+  size: number
+  error: string | null
+}
+
+export interface UploadReport {
+  batch: number
+  total: number
+  uploaded: number
+  failed: string[]
+  error: string | null
+  stopped: boolean
+}
+
+export interface UploadProgress {
+  done: number
+  total: number
+  message: string
+  file: string
+  sent: number
+  size: number
+}
+
+export const uploadApi = {
+  overview: () => invoke<UploadOverview>('upload_overview'),
+  queue: (batch: number) => invoke<QueueFile[]>('upload_queue', { batch }),
+  start: (batch: number) => invoke<UploadReport>('upload_start', { batch }),
+  pause: () => invoke<void>('upload_pause'),
+}
+
 export const scanApi = {
   /** Resolves to null when the folder has no JPEG files. */
   start: (folder: string, recursive: boolean) => invoke<ScanOutcome | null>('scan_start', { folder, recursive }),

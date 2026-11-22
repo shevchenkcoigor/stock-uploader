@@ -9,7 +9,9 @@ pub mod describe;
 pub mod imaging;
 pub mod metadata_csv;
 pub mod scan;
+pub mod sftp;
 pub mod state;
+pub mod upload;
 pub mod validate;
 
 /// Python's `repr()` of a string, so messages read exactly like the ones the Python app stored.
