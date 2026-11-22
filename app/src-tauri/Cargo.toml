@@ -1,0 +1,49 @@
+[package]
+name = "adobe-stock-uploader"
+version = "0.1.0"
+description = "Adobe Stock Uploader"
+authors = []
+license = ""
+repository = ""
+edition = "2024"
+rust-version = "1.90"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.12.7", features = [] }
+rusqlite = { version = "0.43.0", features = ["bundled", "backup"] }
+dirs = "7.0.0"
+thiserror = "2.0.21"
+plist = "1.10.4"
+ssh2 = { version = "0.9.7", features = ["vendored-openssl"] }
+tauri-plugin-dialog = "2.8.4"
+keyring = "3"
+sha2 = "0.11.1"
+csv = "1.4.0"
+regex = "1.13.2"
+base64 = "0.23.1"
+jpeg-decoder = "0.3.2"
+chrono = { version = "0.4.45", features = ["clock"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+tempfile = "3.27.0"
+
+
+# The OS credential store of each platform (the SFTP password lives there).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }

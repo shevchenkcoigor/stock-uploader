@@ -16,29 +16,17 @@ dependencies = [
 [project.scripts]
 adobe = "adobe_stock.cli:main"
 
-[project.gui-scripts]
-adobe-gui = "adobe_stock.gui.app:main"
-
 [project.optional-dependencies]
-gui = [
-    "PySide6>=6.7",
-    "keyring>=25",
-]
-build = [
-    "pyinstaller>=6.10",
-]
 dev = [
     "pytest>=9.2",
     "pytest-xdist>=3.6",
     "basedpyright>=1.40",
     "ruff>=0.17",
     "pre-commit>=4.0",
-    "PySide6>=6.7",
-    "keyring>=25",
 ]
 
 [tool.setuptools]
-packages = ["adobe_stock", "adobe_stock.gui"]
+packages = ["adobe_stock"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
