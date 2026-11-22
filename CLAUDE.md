@@ -20,7 +20,7 @@ cd app && npm run lint && npm test && npm run build   # frontend checks
 cd app && npm run tauri -- dev     # run the desktop app in dev mode (Vite + Rust)
 cd app && npx vitest run src/path/to/file.test.tsx     # single frontend test
 cd app/src-tauri && cargo test     # Rust core tests
-cd app/src-tauri && cargo test core::state::           # single Rust test module/filter
+cd app/src-tauri && cargo test core::backup::          # Rust tests matching a path filter
 cd app/src-tauri && cargo clippy && cargo fmt --check  # Rust lint/format
 ```
 
