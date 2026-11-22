@@ -1,17 +1,10 @@
-.venv/
-__pycache__/
-.pytest_cache/
 *.csv
-.env
 state.db
 state_backups/
-*.db.replaced
-csv/
+export/
 images/
-*.egg-info/
 build/
 .DS_Store
 dist/
-packaging/*.spec
 images*/
 design - Adobe Stock Uploader

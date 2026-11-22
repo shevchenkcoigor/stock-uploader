@@ -1,4 +1,4 @@
-//! Pre-upload image checks for Adobe Stock (JPEG, sRGB, 4-100 MP, <= 45 MB). Port of `validate.py`.
+//! Pre-upload image checks for Adobe Stock (JPEG, sRGB, 4-100 MP, <= 45 MB).
 
 use std::path::Path;
 

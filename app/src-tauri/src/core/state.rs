@@ -1,5 +1,4 @@
-//! The SQLite state database: schema, scan registration, batches, event log. Port of `state.py`
-//! (only what the pages migrated so far need). The schema text is identical to the Python one.
+//! The SQLite state database: schema, scan registration, batches, event log.
 
 use std::collections::HashMap;
 use std::io::Read;

@@ -1,27 +1,23 @@
-# Runs on every `git commit`. Install once with:  .venv/bin/pre-commit install
-# Hooks use the project's own virtualenv so versions match what `pip install -e ".[dev]"` gave you.
+# Runs on every `git commit`. Install once with:  pipx install pre-commit && pre-commit install
+# The hooks use the tools the app itself needs (Node 22+ and a Rust toolchain), nothing else.
 repos:
   - repo: local
     hooks:
-      - id: ruff-check
-        name: ruff check
-        entry: .venv/bin/ruff check --fix --exit-non-zero-on-fix
+      - id: oxlint
+        name: oxlint
+        entry: npm --prefix app run lint
         language: system
-        types: [python]
-      - id: ruff-format
-        name: ruff format
-        entry: .venv/bin/ruff format
-        language: system
-        types: [python]
-      - id: basedpyright
-        name: basedpyright
-        entry: .venv/bin/basedpyright
-        language: system
-        types: [python]
+        types_or: [ts, tsx]
         pass_filenames: false
-      - id: pytest
-        name: pytest
-        entry: .venv/bin/pytest -q -n auto
+      - id: vitest
+        name: vitest
+        entry: npm --prefix app test
         language: system
-        types: [python]
+        types_or: [ts, tsx]
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --manifest-path app/src-tauri/Cargo.toml
+        language: system
+        types_or: [rust, toml]
         pass_filenames: false

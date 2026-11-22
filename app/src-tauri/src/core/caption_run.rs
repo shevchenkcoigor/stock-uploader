@@ -1,4 +1,4 @@
-//! Captioning a set of files and storing the result (port of `services.caption_files`): groups of images go
+//! Captioning a set of files and storing the result: groups of images go
 //! to `claude` in parallel windows, results are checked and written to the database, and new files are batched.
 //! Shared by the commands; it prints nothing and reports progress through a callback.
 

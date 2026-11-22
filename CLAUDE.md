@@ -4,44 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), uploads over SFTP, and builds the metadata CSV. Portal steps (Upload CSV, submit for review) stay manual because Adobe has no API. Front ends: a CLI (`adobe`) and the Tauri desktop app in `app/` (Rust core + React UI; it replaced the PySide6 app, issue #15). `README.md` (in Russian) is the detailed user-facing reference for commands, statuses, settings and Adobe AI-content rules; read it before changing behavior.
+Prepares image batches for Adobe Stock: validates JPEGs, generates titles/keywords/categories via the local `claude` CLI (no API key), embeds the title and keywords (XMP + IPTC) into copies of the files, and uploads those copies over SFTP. Portal steps (category, AI/fictional-people ticks, submit for review) stay manual because Adobe has no API. It is one Tauri desktop app in `app/` (Rust core + React UI); the old PySide6 app and the Python CLI are gone, and so is the Adobe CSV. `README.md` (in Russian) is the detailed user-facing reference for the flow, statuses, settings and Adobe AI-content rules; read it before changing behavior.
 
 ## Commands
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"            # dev extra includes pytest, ruff, basedpyright, pre-commit
-pytest -q                          # all tests
-pytest tests/test_state.py::test_name -q   # single test
-ruff check --fix && ruff format    # line length 110
-basedpyright                       # "standard" mode, uses .venv
 ./install.sh                       # build the Tauri desktop app (npm ci + tauri build; host OS only)
+cd app && npm run tauri dev        # develop with hot reload
 cd app && npm run lint && npm test && npm run build   # frontend checks
 cd app/src-tauri && cargo test     # Rust core tests
+cd app/src-tauri && cargo test --lib core::export     # one module's tests
 ```
 
-Pre-commit (`pre-commit install` once) runs ruff check --fix, ruff format, basedpyright and the full pytest on every commit, using `.venv/bin/…`; a failing hook blocks the commit, and ruff autofixes must be re-staged.
+Pre-commit (`pipx install pre-commit && pre-commit install` once) runs oxlint, vitest and `cargo test` on every commit; a failing hook blocks the commit.
 
 ## Architecture
 
-Pipeline: `scan → caption → (review/approve) → csv → upload → [portal, manual] → submitted`. The Tauri app builds the CSV before uploading and uploads a batch only while its CSV matches the DB; «mark submitted» is on its Upload page. The Python CLI/GUI still use the older order.
+Pipeline: `scan → caption → (review/approve) → prepare + upload → [portal, manual] → submitted`. The Upload page's button first prepares the batch (copies with embedded metadata, a no-op when they are current) and then uploads the copies; «mark submitted» is on the same page.
 
-- `adobe_stock/state.py` — SQLite (`state.db`), the **single source of truth**. Owns the schema, file status lifecycle (`needs_metadata`, `review`, `pending`, `uploaded`, `submitted`, `invalid`), batches, CSV records and the `events` log. `filename` is the flat SFTP/CSV name; duplicates in different folders get a content-hash suffix.
-- `adobe_stock/services.py` — pipeline operations shared by CLI and GUI. Must not print or prompt: return small result objects, report progress via `ProgressCallback(done, total, msg)`, and honor `should_stop` between steps. `services.protected(db)` wraps every mutating run with backups before/after (`backup.py`, last 30 kept) and an integrity check; a missing `state.db` with existing backups aborts with a `restore` hint rather than creating an empty DB.
-- `adobe_stock/cli.py` — argparse front end; only place that prompts (model/batch pickers) and prints.
-- `adobe_stock/caption.py` — shells out to `claude` in a lightweight mode; `MODELS` lists selectable models; images are downscaled to 1568 px and sent several per call. Stops after `MAX_CONSECUTIVE_CALL_FAILURES`; progress already saved is kept. `categories.py` holds the 21 Adobe category codes.
-- `adobe_stock/metadata_csv.py`, `csv_batches.py` — item validation (keyword/title rules), Adobe CSV writing and re-validation, batch splitting, `with_ai_label` (appends the "Generative AI" title suffix when captioning, so DB titles already carry it and the CSV writes them as stored; `adobe label-titles` backfills older titles).
-- `adobe_stock/settings.py` — pydantic-settings `Settings`, env `ADOBE_*` or `.env`. `sftp_upload.py` — paramiko upload, status written per file so interrupted uploads resume.
-- `app/` — Tauri 2 app: `src-tauri/src/core/` is the Rust port of the core (same `state.db` schema, byte-identical CSV), `*_cmd.rs` are Tauri commands, `src/pages/` the React pages. Parity with Python is checked by running both on a copy of the DB.
-
-Because `services.py` is shared, new pipeline logic goes there (not in `cli.py` or a page) and takes callbacks instead of doing I/O.
+- `app/src-tauri/src/core/` is the core; `*_cmd.rs` next to it are the Tauri commands, `app/src/pages/` the React pages. New pipeline logic goes into `core/` and takes callbacks (progress, should-stop) instead of doing I/O; commands only wire it to the UI.
+- `core/state.rs` — SQLite (`state.db`), the **single source of truth**. Owns the schema, file status lifecycle (`needs_metadata`, `review`, `pending`, `uploaded`, `submitted`, `invalid`), batches and the `events` log. `filename` is the flat SFTP name; duplicates in different folders get a content-hash suffix. Older databases are upgraded by `add_missing_columns`; the unused `batches.csv_path` column stays in them.
+- `core/embed.rs` (+ `embed/xmp.rs`, `embed/iptc.rs`) — writes title/description/keywords into a copy of a JPEG with `img-parts`, replacing XMP and IPTC, then reads the copy back to verify. A title over 64 bytes skips IPTC `ObjectName` (a 64-byte field); the full title stays in XMP and `Headline`. Never modifies the source.
+- `core/export.rs` — `prepare_batch` makes copies in `<state.db dir>/export/<batch>/` and records `files.export_path` and `files.embedded_hash` (fingerprint of title + keywords + `EMBED_FORMAT`); `export_readiness` says whether a batch may be uploaded (`Ready`/`Missing`/`Stale`). `upload.rs` refuses a batch that is not `Ready` and sends the copies.
+- `core/metadata.rs` — item rules (title/keyword/category checks, AI-term filter, `with_ai_label` which appends the "Generative AI" suffix when captioning), the optional input `metadata.csv` read on scan, and batch splitting. `core/submit.rs` — «mark submitted».
+- `core/caption.rs`, `caption_run.rs` — shell out to `claude` in a lightweight mode; images are downscaled and sent several per call; stops after repeated call failures, keeping saved progress. `core/categories.rs` holds the 21 Adobe category codes.
+- `core/backup.rs` — `backup::protected` wraps every mutating run with backups before/after (last 30 kept) and an integrity check; a missing `state.db` with existing backups aborts rather than creating an empty DB. Restoring is manual (copy the newest backup over `state.db`).
 
 ## Conventions and gotchas
 
-- Python ≥3.12, fully typed (basedpyright standard). Tests use an isolated environment fixture in `tests/conftest.py`.
-- Never overwrite or delete the real `state.db` (also holds the log); for demos use a separate DB and ini (`packaging/seed_demo.py`).
-- Files are never copied or moved by the tool; the DB stores absolute paths, so renaming scanned files before upload breaks things.
+- Never overwrite or delete the real `state.db` (it also holds the log); for experiments use a separate DB (`ADOBE_STATE_DB` or the «Файл базы» setting).
+- Original files are never modified or moved; the DB stores their absolute paths, so renaming scanned files before upload breaks things. Only the copies in `export/` carry embedded metadata.
+- Test embedded metadata with real images: a flat synthetic image did not get its metadata picked up by the Adobe portal, a real one did (web upload, 2026-11-22). SFTP upload of copies is still to be verified on a real batch.
 - Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout. Merge back to `main` when done.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
-- CI (`.github/workflows/build.yml`) runs lint/types/tests, then builds the desktop app.
+- CI (`.github/workflows/build.yml`) runs the frontend and Rust checks, then builds the desktop app on every OS.
 - After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).

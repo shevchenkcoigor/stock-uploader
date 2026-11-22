@@ -29,7 +29,7 @@ export interface Current {
   size: number
 }
 
-// Same words and order as adobe_stock/gui/upload_page.py: what needs attention comes first.
+// What needs attention comes first.
 export const STATE_VIEWS: Record<QueueState, { label: string; dot: string; rank: number }> = {
   failed: { label: 'Ошибка', dot: 'bg-danger', rank: 0 },
   uploading: { label: 'Загружается', dot: 'bg-accent', rank: 1 },
@@ -95,7 +95,7 @@ export function summaryText(totals: QueueTotals): string {
   return totals.failed ? `${text} · ${totals.failed} ${errorsWord(totals.failed)}` : text
 }
 
-/** "42% · 12 МБ из 30 МБ" (the unit is dropped from the first size, as in the PySide app). */
+/** "42% · 12 МБ из 30 МБ" (the unit is dropped from the first size). */
 export function progressText(totals: QueueTotals): string {
   const percent = Math.round(fractionOf(totals) * 100)
   const sent = formatSize(Math.round(totals.sentBytes))

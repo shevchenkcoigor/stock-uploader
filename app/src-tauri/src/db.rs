@@ -1,4 +1,4 @@
-//! Read access to the same `state.db` the Python app uses (the schema is owned by Python for now).
+//! Where `state.db` lives and how it is opened.
 
 use std::path::PathBuf;
 

@@ -1,4 +1,4 @@
-//! Generate Adobe Stock titles and keywords with headless Claude Code (no API key needed). Port of `caption.py`.
+//! Generate Adobe Stock titles and keywords with headless Claude Code (no API key needed).
 //!
 //! Each call receives several downscaled images and returns JSON. The call is slimmed down (no MCP
 //! servers, no skills, no user settings, short system prompt) so it uses a few thousand tokens instead of

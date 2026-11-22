@@ -1,4 +1,4 @@
-/** Adobe Stock content categories: numeric code -> name (adobe_stock/categories.py). */
+/** Adobe Stock content categories: numeric code -> name. */
 export const CATEGORIES: Readonly<Record<number, string>> = {
   1: 'Animals',
   2: 'Buildings and Architecture',

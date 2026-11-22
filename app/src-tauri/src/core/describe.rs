@@ -1,4 +1,4 @@
-//! Description-page operations that also log and batch (port of `services.set_status` / `approve`).
+//! Description-page operations that also log and batch.
 
 use rusqlite::Connection;
 

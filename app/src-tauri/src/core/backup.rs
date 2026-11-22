@@ -1,4 +1,4 @@
-//! Backups and integrity checks for the state database (our only source of truth). Port of `backup.py`.
+//! Backups and integrity checks for the state database (our only source of truth).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -98,13 +98,19 @@ pub fn guard_state_db(db: &Path) -> AppResult<()> {
     let backups = list_backups(&backup_dir_for(db), &stem_of(db));
     if !db.exists() && !backups.is_empty() {
         return Err(AppError::StateDb(format!(
-            "{} is missing but {} backups exist. Run: restore",
+            "{} is missing but {} backups exist. Copy the newest one from {} back to {}",
             db.display(),
-            backups.len()
+            backups.len(),
+            backup_dir_for(db).display(),
+            db.display()
         )));
     }
     if db.exists() && !integrity_ok(db) {
-        return Err(AppError::StateDb(format!("{} failed the integrity check. Run: restore --force", db.display())));
+        return Err(AppError::StateDb(format!(
+            "{} failed the integrity check. Replace it with the newest backup from {}",
+            db.display(),
+            backup_dir_for(db).display()
+        )));
     }
     Ok(())
 }
@@ -155,7 +161,9 @@ mod tests {
         make_db(&db);
         create_backup(&db, &dir.path().join("s_backups"), 5).unwrap();
         fs::remove_file(&db).unwrap();
-        assert!(matches!(guard_state_db(&db), Err(AppError::StateDb(_))));
+        let Err(AppError::StateDb(message)) = guard_state_db(&db) else { panic!("a missing db with backups must be refused") };
+        assert!(message.contains("s_backups"), "names where the backups are: {message}");
+        assert!(!message.contains("restore"), "no command to run: {message}");
     }
 
     #[test]

@@ -15,46 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint and types
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      # basedpyright reads its interpreter from .venv (see pyproject.toml), so install there.
-      - name: Install
-        run: |
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-      - name: ruff check
-        run: .venv/bin/ruff check
-      - name: ruff format
-        run: .venv/bin/ruff format --check
-      - name: basedpyright
-        run: .venv/bin/basedpyright
-
-  test:
-    name: Tests (${{ matrix.os }})
-    needs: lint
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install
-        run: python -m pip install -e ".[dev]"
-      - name: Test
-        run: python -m pytest -q
-
   app:
-    name: App checks (frontend and Rust)
+    name: Checks (frontend and Rust)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,7 +47,7 @@ jobs:
   # Builds run only when the checks passed.
   build:
     name: Build (${{ matrix.os }})
-    needs: [lint, test, app]
+    needs: app
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -4,7 +4,7 @@ export interface StatusView {
   rank: number // sort order: lower = needs attention sooner
 }
 
-// Same words and order as adobe_stock/gui/status.py
+// The words and order the statuses are shown in.
 export const STATUS_ORDER = ['needs_metadata', 'review', 'pending', 'uploaded', 'submitted', 'invalid'] as const
 
 export const STATUS_VIEWS: Record<string, StatusView> = {

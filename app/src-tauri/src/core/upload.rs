@@ -1,4 +1,4 @@
-//! Uploading the pending files of a batch (port of `services.upload_batch`): the status is written after
+//! Uploading the pending files of a batch: the status is written after
 //! each file, so an interrupted run resumes where it stopped.
 
 use std::collections::HashMap;
