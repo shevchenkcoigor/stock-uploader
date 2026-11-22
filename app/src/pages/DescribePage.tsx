@@ -170,6 +170,14 @@ export function DescribePage({ active }: PageProps) {
         onStatus={(filename, status) => void actions.moveFiles([filename], status)}
         onApprove={(filename) => void actions.approve([filename])}
         onStep={state.step}
+        caption={{
+          models: caption.models,
+          model: caption.model,
+          running: caption.running,
+          onModel: caption.setModel,
+          // a file that already has text asks before it is replaced
+          onRun: (row) => void caption.start([row.filename], true, row.status === 'needs_metadata' ? 0 : 1),
+        }}
       />
     </div>
   )

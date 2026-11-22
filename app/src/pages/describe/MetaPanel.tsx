@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { StatusChip } from '../../components/StatusChip'
 import { StatusMenu } from '../../components/StatusMenu'
 import { TagEditor } from '../../components/TagEditor'
-import { filesApi, type FileRow } from '../../lib/api'
+import { filesApi, type FileRow, type ModelChoice } from '../../lib/api'
 import { CATEGORY_OPTIONS } from '../../lib/categories'
-import { formatSize, resolutionText, type Dimensions } from '../../lib/describe'
+import { RECAPTIONABLE, formatSize, modelTitle, resolutionText, type Dimensions } from '../../lib/describe'
 
 const AUTOSAVE_DELAY_MS = 700 // a pause in typing the title that saves it
 const PREVIEW_SIDE = 240
@@ -52,10 +52,18 @@ interface Props {
   onStatus: (filename: string, status: string) => void
   onApprove: (filename: string) => void
   onStep: (delta: number) => void
+  caption: {
+    models: ModelChoice[]
+    model: string
+    running: boolean
+    onModel: (model: string) => void
+    onRun: (row: FileRow) => void
+  }
 }
 
 /** The card of the open file. The parent gives it a `key` of the file name: another file, a fresh card. */
-export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApprove, onStep }: Props) {
+export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApprove, onStep, caption }: Props) {
+  const canCaption = row !== null && RECAPTIONABLE.includes(row.status)
   const [draft, setDraft] = useState<Draft>(NO_DRAFT)
   const [seen, setSeen] = useState(row)
   const timer = useRef<number | undefined>(undefined)
@@ -137,6 +145,30 @@ export function MetaPanel({ row, dims, hasPrev, hasNext, onSave, onStatus, onApp
         </select>
         <span className={fieldLabel}>Статус</span>
         <StatusMenu field status={row?.status ?? 'needs_metadata'} disabled={disabled} onPick={(status) => row && onStatus(row.filename, status)} />
+        <div className="flex gap-2">
+          <select
+            value={caption.model}
+            aria-label="Модель Claude"
+            disabled={disabled || caption.running}
+            onChange={(event) => caption.onModel(event.target.value)}
+            className="h-9 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {caption.models.map(({ id, note }) => (
+              <option key={id} value={id} title={`${id} — ${note}`}>
+                {modelTitle(id)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!canCaption || caption.running || !caption.model}
+            title={canCaption ? 'Подписать этот файл заново' : 'Отправленный файл не подписывают'}
+            onClick={() => row && caption.onRun(row)}
+            className="h-9 shrink-0 rounded-md bg-accent px-3 text-sm font-medium text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {caption.running ? 'Подписываю…' : '✦ Caption'}
+          </button>
+        </div>
         {row?.status === 'review' && (
           <button
             type="button"
