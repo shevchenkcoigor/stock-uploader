@@ -125,3 +125,27 @@ jobs:
             app/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 30
+
+  # The only way into main: a pull request whose lint, tests, app checks and builds all passed.
+  # Direct pushes to main are not blocked by GitHub on this plan, so the rule lives in CLAUDE.md,
+  # .claude/settings.json and the pre-push hook.
+  automerge:
+    name: Merge into main
+    needs: [lint, test, app, build]
+    if: >-
+      github.event_name == 'pull_request'
+      && github.base_ref == 'main'
+      && !github.event.pull_request.draft
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # --match-head-commit: merge only the commit that was checked, never a newer push.
+      - name: Merge the pull request
+        run: gh pr merge "$PR_URL" --merge --delete-branch --match-head-commit "$HEAD_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
