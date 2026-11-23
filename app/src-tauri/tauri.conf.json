@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2M0NFM0RCQzY5MkI0QzUKUldURnRKTEcyK004Tmc5U3VyWmRaRXdpdW5ZWXBOWFRuMkkwME5jNUxCNy9hL0dsSW56TjNZa2kK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3RDU3MTAxMjAzMERFNkUKUldSdTNqQWdBWEhWRjJQL1ZPK216YnIzdG1vUzlIRXB4SWpRZWxmT21MZnhZSW1zcEw2NEVLb0UK",
       "endpoints": [
         "https://github.com/spiritEcosse/adobe-stock-uploader/releases/latest/download/latest.json"
       ],
