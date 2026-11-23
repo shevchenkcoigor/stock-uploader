@@ -1,5 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog'
 import { CheckButton } from '../components/CheckResult'
+import { UpdateSection } from '../components/UpdateSection'
 import { Button, Field, NumberInput, Section, Segmented, TextInput } from '../components/form'
 import { settingsApi, type ThemeMode } from '../lib/api'
 import { useSettings, type SaveState } from '../lib/useSettings'
@@ -146,6 +147,8 @@ export function SettingsPage() {
         <Section title="Внешний вид">
           <Segmented value={draft.theme} options={THEMES} onChange={(theme) => change({ theme })} />
         </Section>
+
+        <UpdateSection />
       </div>
     </div>
   )

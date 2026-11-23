@@ -1,0 +1,58 @@
+name: Release
+
+# Pushing a tag `vX.Y.Z` (equal to `version` in app/src-tauri/tauri.conf.json) builds signed installers and the
+# updater manifest `latest.json` and publishes them as a GitHub Release. Installed apps update from there.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: macOS arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { label: macOS x64, os: macos-latest, target: x86_64-apple-darwin }
+          - { label: Windows, os: windows-latest, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the app version
+        shell: bash
+        run: |
+          version=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} != version v$version in tauri.conf.json" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+        working-directory: app
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: Adobe Stock Uploader ${{ github.ref_name }}
+          releaseBody: See the commit history for changes.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
