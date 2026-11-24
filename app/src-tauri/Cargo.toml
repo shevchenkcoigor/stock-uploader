@@ -1,6 +1,6 @@
 [package]
 name = "adobe-stock-uploader"
-version = "0.1.0"
+version = "0.1.1"
 description = "Adobe Stock Uploader"
 authors = []
 license = ""
