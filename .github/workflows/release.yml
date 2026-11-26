@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a tag `vX.Y.Z` (equal to `version` in app/src-tauri/tauri.conf.json) builds signed installers and the
-# updater manifest `latest.json` and publishes them as a GitHub Release. Installed apps update from there.
+# Pushing a tag `vX.Y.Z` (equal to `version` in app/src-tauri/tauri.conf.json, on a commit that is in main) runs
+# the checks, then builds signed installers and the updater manifest `latest.json` into a DRAFT GitHub Release.
+# Installed apps see nothing until the draft is published by hand, after the installer was tested.
 on:
   push:
     tags: ['v*']
@@ -9,8 +10,62 @@ on:
 permissions:
   contents: write
 
+# Two runs for one tag would upload into the same draft.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag matches the app version
+        run: |
+          version=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} != version v$version in tauri.conf.json" >&2
+            exit 1
+          fi
+      - name: Tagged commit is in main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "tag ${GITHUB_REF_NAME} points to a commit that is not in main" >&2
+            exit 1
+          fi
+
+  checks:
+    name: Checks
+    needs: verify
+    uses: ./.github/workflows/checks.yml
+
+  # One draft created up front: parallel builds would otherwise race and create several.
+  draft:
+    name: Draft release
+    needs: checks
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! is_draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "Adobe Stock Uploader $GITHUB_REF_NAME" --notes "See the commit history for changes."
+          elif [ "$is_draft" != "true" ]; then
+            echo "release $GITHUB_REF_NAME is already published; release a new version instead" >&2
+            exit 1
+          fi
+          release_id=$(gh release view "$GITHUB_REF_NAME" --json databaseId --jq .databaseId)
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: draft
     name: Release (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -22,14 +77,6 @@ jobs:
           - { label: Windows, os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
-      - name: Tag matches the app version
-        shell: bash
-        run: |
-          version=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
-          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
-            echo "tag ${GITHUB_REF_NAME} != version v$version in tauri.conf.json" >&2
-            exit 1
-          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -50,9 +97,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          # still needed: builds the download URLs in latest.json and its notes
           tagName: ${{ github.ref_name }}
-          releaseName: Adobe Stock Uploader ${{ github.ref_name }}
           releaseBody: See the commit history for changes.
-          releaseDraft: false
-          prerelease: false
+          releaseDraft: true
           args: --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
