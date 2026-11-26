@@ -41,12 +41,12 @@ Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progres
 - Original files are never modified or moved; the DB stores their absolute paths, so renaming scanned files before upload breaks things. Only the copies in `export/` carry embedded metadata.
 - Test embedded metadata with real images: a flat synthetic image did not get its metadata picked up by the Adobe portal, a real one did (web upload, 2026-11-22). SFTP upload of copies is still to be verified on a real batch.
 - Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout.
-- **`main` is changed only through a pull request.** Never commit, merge or push to `main` directly (`git push origin main`, local `git merge` into `main`, force-pushes). GitHub cannot enforce this for a private repo on the free plan, so it is enforced by `.claude/settings.json` deny rules and the `.githooks/pre-push` hook (enable once: `git config core.hooksPath .githooks`). When work is done, do these steps without waiting to be asked:
+- **`main` is changed only through a pull request.** Never commit, merge or push to `main` directly (`git push origin main`, local `git merge` into `main`, force-pushes). GitHub enforces this with branch protection (a pull request and all checks and builds are required, admins included); `.claude/settings.json` deny rules and the `.githooks/pre-push` hook stop mistakes earlier (enable once: `git config core.hooksPath .githooks`). When work is done, do these steps without waiting to be asked:
   1. Run `cd app && npm run fix`, check the diff it made, then commit in the worktree branch (`refs #N`).
   2. `git push -u origin <branch>`.
   3. `gh pr create` into `main`; the body references the issue (`Closes #N`).
-  4. Automerge: the `automerge` job in `build.yml` merges the PR once the app checks and builds on every OS are green. If CI is red, fix the branch and push again; never merge by hand or bypass CI.
-  5. After the merge, remove the worktree and the local branch.
+  4. `gh pr merge --auto --merge`: GitHub merges once every required check and build is green. If CI is red, fix the branch and push again; never merge by hand, change the branch protection or bypass CI.
+  5. After the PR shows `MERGED`: `git pull --ff-only` in the main checkout, then remove the worktree and the local branch.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
-- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): the checks of `checks.yml`, then builds on every OS, then the `automerge` job merges the PR into `main`.
+- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): the checks of `checks.yml`, then builds on every OS. Renaming or adding a job there means updating the required status checks of `main`.
 - After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).
