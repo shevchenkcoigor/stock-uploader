@@ -1,13 +1,15 @@
 //! The SFTP password in the OS keychain, under the same service/account as the PySide app.
+//! Test builds (the `e2e` feature) never open the keychain: they take the password from the environment.
 
 use keyring::Entry;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "stock-uploader";
 /// The previous app name's entry: read when the new one is empty, never deleted.
 const OLD_SERVICE: &str = "adobe-stock-uploader";
 const ACCOUNT: &str = "sftp";
+const E2E_PASSWORD_ENV: &str = "STOCK_E2E_SFTP_PASSWORD";
 
 fn entry(service: &str) -> AppResult<Entry> {
     Ok(Entry::new(service, ACCOUNT)?)
@@ -40,10 +42,16 @@ fn carried_over(
 
 /// Reading may make macOS ask for the Mac password, so call it only when the password is needed.
 pub fn get() -> AppResult<String> {
+    if cfg!(feature = "e2e") {
+        return Ok(std::env::var(E2E_PASSWORD_ENV).unwrap_or_default());
+    }
     carried_over(read(SERVICE), || read(OLD_SERVICE), set)
 }
 
 pub fn set(password: &str) -> AppResult<()> {
+    if cfg!(feature = "e2e") {
+        return Err(AppError::Check("a test build does not save passwords".into()));
+    }
     entry(SERVICE)?.set_password(password)?;
     Ok(())
 }
@@ -53,7 +61,6 @@ mod tests {
     use std::cell::RefCell;
 
     use super::*;
-    use crate::error::AppError;
 
     fn run(current: Option<&str>, old: Option<&str>) -> (String, Vec<String>) {
         let saved = RefCell::new(Vec::new());

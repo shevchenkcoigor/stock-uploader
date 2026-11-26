@@ -1,9 +1,10 @@
 import { $, $$, browser, expect } from '@wdio/globals'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { database, described, flagged, pictureNames, pictures, settingsFile } from '../environment.ts'
+import { database, described, flagged, pictureNames, pictures, settingsFile, sftpLogin } from '../environment.ts'
+import { startSftpServer, type SftpServer } from '../sftp-server.ts'
 
 const screenshots = resolve(import.meta.dirname, '../artifacts/screenshots')
 const MIN_TEXT_COLUMN = 100 // px; narrower and a cell shows next to nothing
@@ -23,6 +24,22 @@ const screenshot = (name: string) => browser.saveScreenshot(join(screenshots, `$
 const button = (text: string) => visiblePage().$(`button=${text}`)
 const toolbarCaption = () => visiblePage().$('section').$('button=✦ Caption')
 const panel = () => visiblePage().$('aside')
+const field = (label: string) => visiblePage().$(`.//label[contains(., "${label}")]//input`)
+const expectText = (text: string) => expect(visiblePage()).toHaveText(expect.stringContaining(text))
+const statuses = () => storedFiles().map((file) => file.status)
+
+/** WebDriver cannot press a native dialog, so its request to Rust is answered inside the window. */
+async function agreeToNextDialog() {
+  await browser.execute(() => {
+    const original = window.fetch
+    window.fetch = (input, init) => {
+      if (!String(input).includes('dialog%7Cmessage')) return original(input, init)
+      window.fetch = original
+      const headers = { 'Content-Type': 'application/json', 'Tauri-Response': 'ok' }
+      return Promise.resolve(new Response(JSON.stringify('Yes'), { headers }))
+    }
+  })
+}
 
 const pictureHashes = () =>
   pictureNames.map((name) => createHash('sha256').update(readFileSync(join(pictures, name))).digest('hex'))
@@ -34,7 +51,13 @@ function storedFiles() {
     return db
       .prepare('SELECT filename, title, keywords, category, status FROM files ORDER BY filename')
       .all()
-      .map((row) => ({ ...row, keywords: JSON.parse(String(row.keywords)) as string[] }))
+      .map((row) => ({
+        filename: String(row.filename),
+        title: String(row.title),
+        category: String(row.category),
+        status: String(row.status),
+        keywords: JSON.parse(String(row.keywords)) as string[],
+      }))
   } finally {
     db.close()
   }
@@ -63,14 +86,18 @@ const pageErrors = () => browser.execute(() => (window as WatchedWindow).e2eErro
 describe('the app window', () => {
   const editedTitle = 'A bronze statue near a fountain'
   let originals: string[] = []
+  let server: SftpServer
 
   before(async () => {
+    server = await startSftpServer()
     originals = pictureHashes()
     // The app has one window. Choosing it ourselves stops the service from asking the app for its windows
     // before element commands: that needs its frontend plugin and otherwise waits 5 s every time.
     await browser.switchToWindow(await browser.getWindowHandle())
     await watchErrors()
   })
+
+  after(() => server?.close())
 
   afterEach(async () => {
     expect(await pageErrors()).toEqual([])
@@ -174,6 +201,69 @@ describe('the app window', () => {
     await expect(button('Отметить отправленным')).toBeDisabled()
     await expect(button('Пауза')).toBeDisabled()
     await screenshot('upload-ready')
+  })
+
+  it('points the app at the local SFTP server', async () => {
+    await openPage('Настройки')
+    await field('Хост').setValue('127.0.0.1')
+    await field('Порт').setValue(String(server.port))
+    await field('Логин').setValue(sftpLogin.user)
+    // nothing may be uploaded before the app has saved these: the default host is Adobe's
+    await browser.waitUntil(() => {
+      const saved = JSON.parse(readFileSync(settingsFile, 'utf8'))
+      return saved.sftp_host === '127.0.0.1' && saved.sftp_port === String(server.port) && saved.sftp_user === sftpLogin.user
+    })
+  })
+
+  it('can pause a running upload, and not start a second one', async () => {
+    server.hold()
+    await openPage('3. Загрузка')
+    await button('Загрузить').click()
+    await browser.waitUntil(() => server.opened.length === 1)
+    await expect(button('Пауза')).toBeEnabled()
+    for (const text of ['Повторить ошибки', 'Загрузить', 'Отметить отправленным']) {
+      await expect(button(text)).toBeDisabled()
+    }
+    await screenshot('upload-running')
+
+    // the file being sent is finished, the next one is not started
+    await button('Пауза').click()
+    server.release()
+    await expectText('Загружено: 1 из 2, ошибок: 0 · приостановлено')
+    expect(server.opened).toHaveLength(1)
+    expect(statuses().sort()).toEqual(['pending', 'uploaded'])
+    await expect(button('Загрузить')).toBeEnabled()
+    await expect(button('Пауза')).toBeDisabled()
+    await screenshot('upload-paused')
+  })
+
+  it('uploads the rest, as copies that carry the title and keywords', async () => {
+    await button('Загрузить').click()
+    await expectText('Загружено: 1 из 1, ошибок: 0')
+    expect(statuses()).toEqual(['uploaded', 'uploaded'])
+    // each file went out once: the one sent before the pause was not sent again
+    expect([...server.opened].sort()).toEqual(pictureNames)
+
+    for (const file of storedFiles()) {
+      const received = server.files.get(file.filename)!
+      expect(received.equals(readFileSync(join(dirname(database), 'export', file.filename)))).toBe(true)
+      const text = received.toString('utf8')
+      expect(text).toContain(`<rdf:li xml:lang="x-default">${file.title}</rdf:li>`)
+      for (const keyword of file.keywords) expect(text).toContain(`<rdf:li>${keyword}</rdf:li>`)
+    }
+    await expect(button('Загрузить')).toBeDisabled()
+    await expect(button('Отметить отправленным')).toBeEnabled()
+    await screenshot('upload-done')
+  })
+
+  it('marks the uploaded files as submitted', async () => {
+    await agreeToNextDialog()
+    await button('Отметить отправленным').click()
+    await expectText('Отмечено отправленными: 2')
+    expect(statuses()).toEqual(['submitted', 'submitted'])
+    await expect(button('Отметить отправленным')).toBeDisabled()
+    await expect(button('Загрузить')).toBeDisabled()
+    await screenshot('upload-submitted')
   })
 
   it('left the original pictures untouched', () => {

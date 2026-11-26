@@ -37,8 +37,10 @@ fn on_path() -> Vec<PathBuf> {
 }
 
 /// The configured path (setting, then the env variable), else the first `claude` on PATH or a usual dir.
+/// A test build (the `e2e` feature) runs only the stand-in named by the env variable, never an installed one.
 pub fn find_claude(configured: &str) -> Option<PathBuf> {
-    let configured = if configured.trim().is_empty() {
+    let stand_in_only = cfg!(feature = "e2e");
+    let configured = if stand_in_only || configured.trim().is_empty() {
         env::var(CLAUDE_ENV, LEGACY_CLAUDE_ENV).and_then(|value| value.into_string().ok()).unwrap_or_default()
     } else {
         configured.to_string()
@@ -46,6 +48,9 @@ pub fn find_claude(configured: &str) -> Option<PathBuf> {
     if !configured.trim().is_empty() {
         let path = PathBuf::from(configured.trim());
         return path.exists().then_some(path);
+    }
+    if stand_in_only {
+        return None;
     }
     let dirs = on_path().into_iter().chain(CLAUDE_DIRS.iter().map(|dir| home_relative(dir))).chain(nvm_bins());
     dirs.map(|dir| dir.join("claude")).find(|path| is_file(path))
