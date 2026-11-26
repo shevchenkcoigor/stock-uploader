@@ -29,6 +29,16 @@ jobs:
       - name: cargo fmt
         working-directory: app/src-tauri
         run: cargo fmt --check
+      # The server of the window tests lets a local process drive the app. It is behind the `e2e` feature, so
+      # the dependency tree of a normal (release) build must not contain it.
+      - name: No WebDriver server in a normal build
+        working-directory: app/src-tauri
+        run: |
+          tree=$(cargo tree --locked --target all --edges normal --prefix none)
+          if grep -i wdio <<<"$tree"; then
+            echo "a WebDriver plugin is part of the default build" >&2
+            exit 1
+          fi
 
   frontend:
     name: Frontend

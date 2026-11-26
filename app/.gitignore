@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# window tests (app/e2e)
+e2e/artifacts

@@ -10,12 +10,25 @@ updates:
       - { dependency-name: "@types/node", update-types: ["version-update:semver-major"] }
     groups:
       minor-and-patch: { update-types: [minor, patch] }
+  # the window tests: @wdio/tauri-service decides which major of WebdriverIO fits
+  - package-ecosystem: npm
+    directory: /app/e2e
+    schedule: { interval: weekly }
+    ignore:
+      - { dependency-name: "@wdio/*", update-types: ["version-update:semver-major"] }
+      - { dependency-name: webdriverio, update-types: ["version-update:semver-major"] }
+      - { dependency-name: typescript, update-types: ["version-update:semver-major"] }
+      - { dependency-name: "@types/node", update-types: ["version-update:semver-major"] }
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: cargo
     directory: /app/src-tauri
     schedule: { interval: weekly }
-    # keyring 4 drops the features used here; move to it by hand
+    # keyring 4 drops the features used here; move to it by hand. The WebDriver plugin of the window tests must
+    # keep the major of @wdio/tauri-service.
     ignore:
       - { dependency-name: keyring, update-types: ["version-update:semver-major"] }
+      - { dependency-name: tauri-plugin-wdio-webdriver, update-types: ["version-update:semver-major"] }
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: github-actions
