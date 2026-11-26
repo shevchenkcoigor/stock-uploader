@@ -42,7 +42,7 @@ Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progres
 - Test embedded metadata with real images: a flat synthetic image did not get its metadata picked up by the Adobe portal, a real one did (web upload, 2026-11-22). SFTP upload of copies is still to be verified on a real batch.
 - Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout.
 - **`main` is changed only through a pull request.** Never commit, merge or push to `main` directly (`git push origin main`, local `git merge` into `main`, force-pushes). GitHub cannot enforce this for a private repo on the free plan, so it is enforced by `.claude/settings.json` deny rules and the `.githooks/pre-push` hook (enable once: `git config core.hooksPath .githooks`). When work is done, do these steps without waiting to be asked:
-  1. Commit in the worktree branch (`refs #N`).
+  1. Run `cd app && npm run fix`, check the diff it made, then commit in the worktree branch (`refs #N`).
   2. `git push -u origin <branch>`.
   3. `gh pr create` into `main`; the body references the issue (`Closes #N`).
   4. Automerge: the `automerge` job in `build.yml` merges the PR once the app checks and builds on every OS are green. If CI is red, fix the branch and push again; never merge by hand or bypass CI.
