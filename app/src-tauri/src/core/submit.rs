@@ -39,10 +39,16 @@ mod tests {
         }
         let done = mark_submitted(&conn).unwrap();
         assert_eq!(done.count, 1);
-        let statuses: Vec<String> =
-            conn.prepare("SELECT status FROM files ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        let statuses: Vec<String> = conn
+            .prepare("SELECT status FROM files ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         assert_eq!(statuses, ["submitted", "pending", "needs_metadata"]);
-        let message: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+        let message: String =
+            conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
         assert_eq!(message, "1 files marked submitted");
     }
 }

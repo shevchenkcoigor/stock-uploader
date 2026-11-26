@@ -13,14 +13,8 @@ use crate::settings::{claude_path_setting, sftp_login};
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
 const CLAUDE_ENV: &str = "ADOBE_CLAUDE_PATH";
 // Apps started from Finder do not get the shell's PATH, so look where Claude Code usually installs itself.
-const CLAUDE_DIRS: [&str; 6] = [
-    "~/.local/bin",
-    "~/.claude/local",
-    "~/.npm-global/bin",
-    "~/.bun/bin",
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-];
+const CLAUDE_DIRS: [&str; 6] =
+    ["~/.local/bin", "~/.claude/local", "~/.npm-global/bin", "~/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin"];
 
 fn home_relative(dir: &str) -> PathBuf {
     match dir.strip_prefix("~/") {
@@ -37,9 +31,7 @@ fn nvm_bins() -> Vec<PathBuf> {
 }
 
 fn on_path() -> Vec<PathBuf> {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).collect())
-        .unwrap_or_default()
+    std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect()).unwrap_or_default()
 }
 
 /// The configured path (setting, then the env variable), else the first `claude` on PATH or a usual dir.
@@ -53,10 +45,7 @@ pub fn find_claude(configured: &str) -> Option<PathBuf> {
         let path = PathBuf::from(configured.trim());
         return path.exists().then_some(path);
     }
-    let dirs = on_path()
-        .into_iter()
-        .chain(CLAUDE_DIRS.iter().map(|dir| home_relative(dir)))
-        .chain(nvm_bins());
+    let dirs = on_path().into_iter().chain(CLAUDE_DIRS.iter().map(|dir| home_relative(dir))).chain(nvm_bins());
     dirs.map(|dir| dir.join("claude")).find(|path| is_file(path))
 }
 
@@ -66,16 +55,13 @@ fn is_file(path: &Path) -> bool {
 
 #[tauri::command]
 pub async fn check_claude() -> AppResult<String> {
-    tauri::async_runtime::spawn_blocking(run_check_claude)
-        .await
-        .map_err(|error| AppError::Check(error.to_string()))?
+    tauri::async_runtime::spawn_blocking(run_check_claude).await.map_err(|error| AppError::Check(error.to_string()))?
 }
 
 fn run_check_claude() -> AppResult<String> {
     let found = find_claude(&claude_path_setting()).ok_or_else(|| {
         AppError::Check(
-            "Claude Code (`claude`) не найден. Установите его и войдите в аккаунт, либо укажите путь выше."
-                .into(),
+            "Claude Code (`claude`) не найден. Установите его и войдите в аккаунт, либо укажите путь выше.".into(),
         )
     })?;
     let output = Command::new(&found)
@@ -90,18 +76,12 @@ fn run_check_claude() -> AppResult<String> {
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    Ok(format!(
-        "Claude найден: {}\nВерсия: {}",
-        found.display(),
-        String::from_utf8_lossy(&output.stdout).trim()
-    ))
+    Ok(format!("Claude найден: {}\nВерсия: {}", found.display(), String::from_utf8_lossy(&output.stdout).trim()))
 }
 
 #[tauri::command]
 pub async fn check_sftp() -> AppResult<String> {
-    tauri::async_runtime::spawn_blocking(run_check_sftp)
-        .await
-        .map_err(|error| AppError::Check(error.to_string()))?
+    tauri::async_runtime::spawn_blocking(run_check_sftp).await.map_err(|error| AppError::Check(error.to_string()))?
 }
 
 /// Connects and logs in without transferring anything.
@@ -113,14 +93,11 @@ fn run_check_sftp() -> AppResult<String> {
         .map_err(|error| fail("Не удалось найти сервер", &error))?
         .next()
         .ok_or_else(|| AppError::Check("Не удалось найти сервер".into()))?;
-    let tcp = TcpStream::connect_timeout(&address, NETWORK_TIMEOUT)
-        .map_err(|error| fail("Нет соединения", &error))?;
+    let tcp = TcpStream::connect_timeout(&address, NETWORK_TIMEOUT).map_err(|error| fail("Нет соединения", &error))?;
     let mut session = Session::new().map_err(|error| fail("SSH", &error))?;
     session.set_timeout(u32::try_from(NETWORK_TIMEOUT.as_millis()).unwrap_or(20_000));
     session.set_tcp_stream(tcp);
     session.handshake().map_err(|error| fail("SSH рукопожатие", &error))?;
-    session
-        .userauth_password(&login.user, &login.password)
-        .map_err(|error| fail("Вход не выполнен", &error))?;
+    session.userauth_password(&login.user, &login.password).map_err(|error| fail("Вход не выполнен", &error))?;
     Ok(format!("Вход выполнен: {}@{}:{}", login.user, login.host, login.port))
 }

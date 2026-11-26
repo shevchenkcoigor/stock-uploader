@@ -6,12 +6,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
+use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
 use rusqlite::Connection;
 
 use super::caption::tests::fake_claude;
-use super::caption_run::{caption_files, CaptionOptions};
-use super::embed::{read_embedded, verify_embedded, EmbedMeta};
+use super::caption_run::{CaptionOptions, caption_files};
+use super::embed::{EmbedMeta, read_embedded, verify_embedded};
 use super::export::prepare_pending;
 use super::scan::{find_images, scan};
 use super::sftp::Uploader;
@@ -193,7 +193,8 @@ fn a_title_edited_after_preparing_blocks_the_upload_until_the_copy_is_refreshed(
     prepare_pending(&conn, &export_dir, AI_LABEL, &mut |_, _, _| {}, &|| false).unwrap();
 
     let keywords = ["fox".to_string(), "snow".to_string()];
-    state::update_metadata(&conn, "shot1.jpg", "Arctic fox resting on a snowy hill Generative AI", &keywords, "1").unwrap();
+    state::update_metadata(&conn, "shot1.jpg", "Arctic fox resting on a snowy hill Generative AI", &keywords, "1")
+        .unwrap();
     let stale = upload_pending(&conn, connect_to(&server), &mut |_| {}, &|| false).unwrap();
     assert!(stale.blocked.is_some());
     assert!(server.lock().unwrap().puts.is_empty());

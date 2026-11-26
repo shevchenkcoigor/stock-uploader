@@ -1,8 +1,8 @@
 //! The scan page's commands: run a scan with progress and cancel, list the problem files.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use chrono::Local;
@@ -134,13 +134,13 @@ pub async fn scan_start(
     }
     let control = control.inner().clone();
     let guard = control.begin("Сканирование уже идёт")?;
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
+
+    tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         run_scan(&app, &control, root, recursive)
     })
     .await
-    .map_err(|error| AppError::Check(error.to_string()))?;
-    outcome
+    .map_err(|error| AppError::Check(error.to_string()))?
 }
 
 impl ScanControl {

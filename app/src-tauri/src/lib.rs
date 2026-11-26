@@ -1,18 +1,18 @@
+mod caption_cmd;
 mod checks;
 pub mod core;
 mod db;
-mod caption_cmd;
 mod describe_cmd;
 mod error;
 mod events;
 mod files;
 mod prefs;
 mod scan_cmd;
-mod upload_cmd;
 mod secrets;
 mod settings;
 mod summary;
 mod updater_cmd;
+mod upload_cmd;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

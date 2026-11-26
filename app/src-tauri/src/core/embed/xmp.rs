@@ -29,7 +29,8 @@ fn language_alternative(tag: &str, text: &str) -> String {
 }
 
 pub fn build_packet(meta: &EmbedMeta) -> String {
-    let keywords: String = meta.keywords.iter().map(|keyword| format!("<rdf:li>{}</rdf:li>", escape(keyword))).collect();
+    let keywords: String =
+        meta.keywords.iter().map(|keyword| format!("<rdf:li>{}</rdf:li>", escape(keyword))).collect();
     format!(
         "<?xpacket begin=\"\u{FEFF}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
          <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\

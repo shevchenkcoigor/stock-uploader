@@ -142,7 +142,10 @@ pub fn merge_app13(existing: Option<&[u8]>, iim: &[u8]) -> Vec<u8> {
 
 /// The IPTC-IIM bytes inside an APP13 payload, if it has the IPTC resource.
 pub fn extract_iim(app13: &[u8]) -> Option<Vec<u8>> {
-    resources(app13)?.into_iter().find(|resource| resource.id == IPTC_RESOURCE_ID).map(|resource| resource.data.to_vec())
+    resources(app13)?
+        .into_iter()
+        .find(|resource| resource.id == IPTC_RESOURCE_ID)
+        .map(|resource| resource.data.to_vec())
 }
 
 #[cfg(test)]

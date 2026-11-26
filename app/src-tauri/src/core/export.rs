@@ -4,12 +4,12 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::embed::{self, EmbedMeta};
-use super::metadata::{check_items, Item};
+use super::metadata::{Item, check_items};
 use super::state;
 use crate::error::AppResult;
 
@@ -46,7 +46,10 @@ pub enum ExportReadiness {
 
 /// Fingerprint of everything embedded in a copy; it changes when the metadata or the format does.
 pub fn metadata_fingerprint(title: &str, keywords: &[String]) -> String {
-    let text = format!("{EMBED_FORMAT}{FIELD_SEPARATOR}{title}{FIELD_SEPARATOR}{}", keywords.join(&KEYWORD_SEPARATOR.to_string()));
+    let text = format!(
+        "{EMBED_FORMAT}{FIELD_SEPARATOR}{title}{FIELD_SEPARATOR}{}",
+        keywords.join(&KEYWORD_SEPARATOR.to_string())
+    );
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
@@ -143,7 +146,8 @@ pub fn prepare_pending(
             report.current += 1;
             continue;
         }
-        let meta = EmbedMeta { title: row.title.clone(), description: row.title.clone(), keywords: row.keywords.clone() };
+        let meta =
+            EmbedMeta { title: row.title.clone(), description: row.title.clone(), keywords: row.keywords.clone() };
         match embed::write_embedded(&row.source, &copy, &meta) {
             Ok(()) => {
                 record_export(conn, &row.source, &copy, &fingerprint)?;
@@ -171,7 +175,8 @@ pub fn prepare_pending(
 pub fn export_readiness(conn: &Connection) -> AppResult<ExportReadiness> {
     let mut readiness = ExportReadiness::Ready;
     for row in pending_rows(conn)? {
-        let has_copy = !row.embedded_hash.is_empty() && !row.export_path.is_empty() && Path::new(&row.export_path).exists();
+        let has_copy =
+            !row.embedded_hash.is_empty() && !row.export_path.is_empty() && Path::new(&row.export_path).exists();
         if !has_copy {
             return Ok(ExportReadiness::Missing);
         }
@@ -186,10 +191,10 @@ pub fn export_readiness(conn: &Connection) -> AppResult<ExportReadiness> {
 pub fn readiness_text(readiness: ExportReadiness) -> String {
     match readiness {
         ExportReadiness::Ready => String::new(),
-        ExportReadiness::Missing => {
-            "Нет подготовленных файлов: сначала подготовьте их к загрузке.".to_string()
+        ExportReadiness::Missing => "Нет подготовленных файлов: сначала подготовьте их к загрузке.".to_string(),
+        ExportReadiness::Stale => {
+            "Подготовленные файлы устарели (название или ключевые слова изменились): подготовьте их заново.".to_string()
         }
-        ExportReadiness::Stale => "Подготовленные файлы устарели (название или ключевые слова изменились): подготовьте их заново.".to_string(),
     }
 }
 
@@ -236,7 +241,8 @@ mod tests {
     #[test]
     fn writes_a_copy_per_file_records_it_and_leaves_the_originals_and_statuses_alone() {
         let (dir, conn) = setup(2);
-        let originals: Vec<Vec<u8>> = (0..2).map(|i| std::fs::read(dir.path().join(format!("p{i}.jpg"))).unwrap()).collect();
+        let originals: Vec<Vec<u8>> =
+            (0..2).map(|i| std::fs::read(dir.path().join(format!("p{i}.jpg"))).unwrap()).collect();
         let report = prepare(&conn, dir.path());
         assert_eq!((report.total, report.prepared, report.current, report.failed.len()), (2, 2, 0, 0));
         assert!(report.problems.is_empty(), "{:?}", report.problems);
@@ -246,9 +252,16 @@ mod tests {
         for (index, original) in originals.iter().enumerate() {
             assert_eq!(&std::fs::read(dir.path().join(format!("p{index}.jpg"))).unwrap(), original);
         }
-        let stored: String = conn.query_row("SELECT export_path FROM files WHERE filename = 'p0.jpg'", [], |r| r.get(0)).unwrap();
+        let stored: String =
+            conn.query_row("SELECT export_path FROM files WHERE filename = 'p0.jpg'", [], |r| r.get(0)).unwrap();
         assert_eq!(stored, copy.to_string_lossy());
-        let statuses: Vec<String> = conn.prepare("SELECT status FROM files").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        let statuses: Vec<String> = conn
+            .prepare("SELECT status FROM files")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         assert!(statuses.iter().all(|status| status == "pending"));
         assert_eq!(export_readiness(&conn).unwrap(), ExportReadiness::Ready);
     }
@@ -288,10 +301,15 @@ mod tests {
         let (dir, conn) = setup(2);
         conn.execute("UPDATE files SET keywords = '[]' WHERE filename = 'p1.jpg'", []).unwrap();
         let report = prepare(&conn, dir.path());
-        assert!(report.problems.iter().any(|problem| problem.contains("p1.jpg") && problem.contains("no keywords")), "{:?}", report.problems);
+        assert!(
+            report.problems.iter().any(|problem| problem.contains("p1.jpg") && problem.contains("no keywords")),
+            "{:?}",
+            report.problems
+        );
         assert_eq!(report.prepared, 0);
         assert!(!dir.path().join("export").exists());
-        let hashes: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE embedded_hash != ''", [], |r| r.get(0)).unwrap();
+        let hashes: i64 =
+            conn.query_row("SELECT COUNT(*) FROM files WHERE embedded_hash != ''", [], |r| r.get(0)).unwrap();
         assert_eq!(hashes, 0);
     }
 
@@ -313,7 +331,8 @@ mod tests {
             calls.set(calls.get() + 1);
             calls.get() > 1
         };
-        let report = prepare_pending(&conn, &dir.path().join("export"), LABEL, &mut |_, _, _| {}, &stop_after_one).unwrap();
+        let report =
+            prepare_pending(&conn, &dir.path().join("export"), LABEL, &mut |_, _, _| {}, &stop_after_one).unwrap();
         assert!(report.stopped);
         assert_eq!(report.prepared, 1);
     }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use base64::Engine;
-use image::{codecs::jpeg::JpegEncoder, DynamicImage, ExtendedColorType, RgbImage};
+use image::{DynamicImage, ExtendedColorType, RgbImage, codecs::jpeg::JpegEncoder};
 use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
@@ -33,9 +33,9 @@ fn decode_scaled(path: &Path, side: u32) -> Option<RgbImage> {
     let (width, height) = (u32::from(info.width), u32::from(info.height));
     match info.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => RgbImage::from_raw(width, height, pixels),
-        jpeg_decoder::PixelFormat::L8 => {
-            Some(image::GrayImage::from_raw(width, height, pixels).map(|gray| DynamicImage::ImageLuma8(gray).to_rgb8())?)
-        }
+        jpeg_decoder::PixelFormat::L8 => Some(
+            image::GrayImage::from_raw(width, height, pixels).map(|gray| DynamicImage::ImageLuma8(gray).to_rgb8())?,
+        ),
         _ => None,
     }
 }

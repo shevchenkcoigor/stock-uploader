@@ -17,9 +17,7 @@ pub fn status_summary() -> AppResult<Vec<StatusCount>> {
     };
     let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM files GROUP BY status")?;
     let counts = stmt
-        .query_map([], |row| {
-            Ok(StatusCount { status: row.get(0)?, n: row.get(1)? })
-        })?
+        .query_map([], |row| Ok(StatusCount { status: row.get(0)?, n: row.get(1)? }))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(counts)
 }

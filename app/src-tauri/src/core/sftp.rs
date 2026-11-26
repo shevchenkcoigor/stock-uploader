@@ -36,7 +36,8 @@ pub fn connect(login: &Login) -> Result<SftpUploader, String> {
         .map_err(|error| format!("не удалось найти сервер: {error}"))?
         .next()
         .ok_or_else(|| "не удалось найти сервер".to_string())?;
-    let tcp = TcpStream::connect_timeout(&address, NETWORK_TIMEOUT).map_err(|error| format!("нет соединения: {error}"))?;
+    let tcp =
+        TcpStream::connect_timeout(&address, NETWORK_TIMEOUT).map_err(|error| format!("нет соединения: {error}"))?;
     let mut session = Session::new().map_err(|error| format!("SSH: {error}"))?;
     session.set_timeout(u32::try_from(NETWORK_TIMEOUT.as_millis()).unwrap_or(30_000));
     session.set_tcp_stream(tcp);

@@ -15,10 +15,10 @@ cd app && npm run lint && npm test && npm run build   # frontend checks
 cd app && npx vitest run src/path/to/file.test.ts     # single frontend test
 cd app/src-tauri && cargo test     # Rust core tests
 cd app/src-tauri && cargo test --lib core::export     # Rust tests matching a path filter
-cd app/src-tauri && cargo clippy   # Rust lint
+cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings   # Rust format and lint (CI)
 ```
 
-There is no commit hook (there is no Python to host pre-commit); CI runs lint, vitest, build and `cargo test` on every pull request, so run them locally only when you want faster feedback.
+There is no commit hook (there is no Python to host pre-commit); CI runs the checks in `checks.yml` (lint, vitest, build, `cargo fmt`/`clippy`/`test`, dependency audit) on every pull request, so run them locally only when you want faster feedback.
 
 ## Architecture
 
@@ -48,5 +48,5 @@ Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progres
   4. Automerge: the `automerge` job in `build.yml` merges the PR once the app checks and builds on every OS are green. If CI is red, fix the branch and push again; never merge by hand or bypass CI.
   5. After the merge, remove the worktree and the local branch.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
-- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): frontend and Rust checks, builds on every OS, then the `automerge` job merges the PR into `main`.
+- CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): the checks of `checks.yml`, then builds on every OS, then the `automerge` job merges the PR into `main`.
 - After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).

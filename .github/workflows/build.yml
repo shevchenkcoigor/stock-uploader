@@ -48,12 +48,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
       - run: npm ci
-      # Linux already ran it in the checks job; macOS catches platform-specific breakage. Not on Windows yet:
-      # the stand-in `claude` of the caption tests is a Unix shell script.
-      - name: cargo test
-        if: runner.os == 'macOS'
-        working-directory: app/src-tauri
-        run: cargo test
       - name: Build
         run: npm run tauri -- build
       - uses: actions/upload-artifact@v4
@@ -69,7 +63,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # The only way into main: a pull request whose frontend and Rust checks and builds on every OS all passed.
+  # The only way into main: a pull request whose checks (checks.yml) and builds on every OS all passed.
   # Direct pushes to main are not blocked by GitHub on this plan, so the rule lives in CLAUDE.md,
   # .claude/settings.json and the pre-push hook.
   automerge:
