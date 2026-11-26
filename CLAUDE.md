@@ -27,6 +27,7 @@ Pipeline: `scan → caption → (review/approve) → prepare + upload → [porta
 - `core/state.rs` — SQLite (`state.db`), the **single source of truth**. Owns the schema, file status lifecycle (`needs_metadata`, `review`, `pending`, `uploaded`, `submitted`, `invalid`) and the `events` log. `filename` is the flat SFTP name; duplicates in different folders get a content-hash suffix. Older databases are upgraded by `add_missing_columns`; the unused `batches` table, `files.batch_id` and `batches.csv_path` stay in them.
 - `core/embed.rs` (+ `embed/xmp.rs`, `embed/iptc.rs`) — writes title/description/keywords into a copy of a JPEG with `img-parts`, replacing XMP and IPTC, then reads the copy back to verify. A title over 64 bytes skips IPTC `ObjectName` (a 64-byte field); the full title stays in XMP and `Headline`. Never modifies the source.
 - `core/export.rs` — `prepare_pending` makes copies in `<state.db dir>/export/` and records `files.export_path` and `files.embedded_hash` (fingerprint of title + keywords + `EMBED_FORMAT`); `export_readiness` says whether the pending files may be uploaded (`Ready`/`Missing`/`Stale`). `upload.rs` refuses to run unless `Ready` and sends the copies.
+- `core/migrate.rs` copies the data folder of the previous app name (`Adobe Stock Uploader`) on start and never overwrites; `identifier`, keychain service and env vars were renamed too, with the old ones still read.
 - `core/metadata.rs` — item rules (title/keyword/category checks, AI-term filter, `with_ai_label` which appends the "Generative AI" suffix when captioning), the optional input `metadata.csv` read on scan. `core/submit.rs` — «mark submitted».
 - `core/caption.rs`, `caption_run.rs` — shell out to `claude` in a lightweight mode; images are downscaled and sent several per call; stops after repeated call failures, keeping saved progress. `core/categories.rs` holds the 21 Adobe category codes.
 - `core/backup.rs` — `backup::protected` wraps every mutating run with backups before/after (last 30 kept) and an integrity check; a missing `state.db` with existing backups aborts rather than creating an empty DB. Restoring is manual (copy the newest backup over `state.db`).
@@ -37,7 +38,7 @@ Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progres
 
 ## Conventions and gotchas
 
-- Never overwrite or delete the real `state.db` (it also holds the log); for experiments use a separate DB (`ADOBE_STATE_DB` or the «Файл базы» setting).
+- Never overwrite or delete the real `state.db` (it also holds the log); for experiments use a separate DB (`STOCK_STATE_DB` or the «Файл базы» setting).
 - Original files are never modified or moved; the DB stores their absolute paths, so renaming scanned files before upload breaks things. Only the copies in `export/` carry embedded metadata.
 - Test embedded metadata with real images: a flat synthetic image did not get its metadata picked up by the Adobe portal, a real one did (web upload, 2026-11-22). SFTP upload of copies is still to be verified on a real batch.
 - Every new feature **and every fix** is developed in its own git worktree (a separate branch and directory, kept in `../worktrees/`), never directly in the main checkout.
@@ -49,4 +50,4 @@ Pipeline logic goes in `app/src-tauri/src/core/` (no Tauri types, no UI; progres
   5. After the PR shows `MERGED`: `git pull --ff-only` in the main checkout, then remove the worktree and the local branch.
 - A new feature requires a GitHub issue. If none exists, create one (`gh issue create`) before starting work, and reference it in the branch/commits.
 - CI (`.github/workflows/build.yml`) starts on every pull request (and on push to `main`): the checks of `checks.yml`, then builds on every OS, then `CI gate`, the one required check. A new job must be added to the `needs` of `CI gate`.
-- After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Adobe Stock Uploader.app"`).
+- After committing, the user expects the `.app` to be rebuilt and reopened from the worktree (`cd app && npm run tauri -- build --bundles app`, then `open -n "app/src-tauri/target/release/bundle/macos/Stock Uploader.app"`).

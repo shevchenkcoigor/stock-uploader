@@ -13,6 +13,9 @@ updates:
   - package-ecosystem: cargo
     directory: /app/src-tauri
     schedule: { interval: weekly }
+    # keyring 4 drops the features used here; move to it by hand
+    ignore:
+      - { dependency-name: keyring, update-types: ["version-update:semver-major"] }
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: github-actions

@@ -9,9 +9,11 @@ pub mod describe;
 #[cfg(all(test, unix))]
 mod e2e;
 pub mod embed;
+pub mod env;
 pub mod export;
 pub mod imaging;
 pub mod metadata;
+pub mod migrate;
 pub mod scan;
 pub mod sftp;
 pub mod state;

@@ -126,7 +126,7 @@ fn merged(map: &PrefMap, dto: &SettingsDto) -> PrefMap {
 }
 
 fn view(dto: SettingsDto) -> SettingsView {
-    let data_dir = prefs::legacy_data_dir();
+    let data_dir = prefs::data_dir();
     SettingsView { settings: dto, default_db_path: data_dir.join("state.db").display().to_string() }
 }
 

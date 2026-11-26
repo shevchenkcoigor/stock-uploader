@@ -56,7 +56,7 @@ jobs:
         run: |
           if ! is_draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-              --title "Adobe Stock Uploader $GITHUB_REF_NAME" --notes "See the commit history for changes."
+              --title "Stock Uploader $GITHUB_REF_NAME" --notes "See the commit history for changes."
           elif [ "$is_draft" != "true" ]; then
             echo "release $GITHUB_REF_NAME is already published; release a new version instead" >&2
             exit 1

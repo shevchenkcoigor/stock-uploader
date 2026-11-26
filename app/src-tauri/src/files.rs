@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 
 const DEVICE_SCALE: u32 = 2; // drawn at twice the size so it stays sharp on retina screens
 const THUMB_QUALITY: u8 = 82;
-const CACHE_DIR: &str = "com.adobe-stock-uploader.desktop/thumbs";
+const CACHE_DIR: &str = "com.stock-uploader.desktop/thumbs";
 
 fn cache_file(path: &Path, side: u32) -> Option<PathBuf> {
     let meta = std::fs::metadata(path).ok()?;

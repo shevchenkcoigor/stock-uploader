@@ -58,7 +58,7 @@ jobs:
         run: npm run tauri -- build
       - uses: actions/upload-artifact@v7
         with:
-          name: adobe-stock-uploader-${{ runner.os }}
+          name: stock-uploader-${{ runner.os }}
           # a .dmg / .msi / .exe / .AppImage / .deb from each OS; the unsigned .app itself is inside the .dmg
           path: |
             app/src-tauri/target/release/bundle/dmg/*.dmg
