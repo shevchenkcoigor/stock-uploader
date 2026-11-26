@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { appEnv, writePictures } from './environment.ts'
+import { appEnv, writeFakeClaude, writePictures } from './environment.ts'
 
 const binary = resolve(import.meta.dirname, '../src-tauri/target/debug/stock-uploader')
 const artifacts = resolve(import.meta.dirname, 'artifacts')
@@ -34,5 +34,6 @@ export const config: WebdriverIO.Config = {
   onPrepare() {
     mkdirSync(join(artifacts, 'screenshots'), { recursive: true })
     writePictures()
+    writeFakeClaude()
   },
 }
