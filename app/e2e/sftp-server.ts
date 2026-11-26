@@ -63,7 +63,9 @@ export async function startSftpServer(): Promise<SftpServer> {
     privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
   }).privateKey
 
-  const server = new Server({ hostKeys: [hostKey] }, (client) => {
+  // one key exchange that libssh2 can do with every crypto backend: the Windows build uses the system's
+  const config = { hostKeys: [hostKey], algorithms: { kex: ['diffie-hellman-group14-sha256' as const] } }
+  const server = new Server(config, (client) => {
     clients.add(client)
     client.on('close', () => clients.delete(client))
     // the app drops the connection without a goodbye; that is not a test failure
