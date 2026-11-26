@@ -37,6 +37,9 @@ export const flagged = {
   reason: 'resembles a real person',
 }
 
+// Given to the test build in place of the keychain, and expected by the local SFTP server.
+export const sftpLogin = { user: 'e2e-user', password: 'e2e-password' }
+
 export const appEnv = {
   HOME: home,
   XDG_DATA_HOME: join(home, '.local', 'share'),
@@ -46,6 +49,7 @@ export const appEnv = {
   STOCK_CLAUDE_PATH: fakeClaude,
   // read only by Windows builds' stand-in for HOME; see `data_root` in prefs.rs
   ...(windows ? { STOCK_E2E_DATA_DIR: dataDir } : {}),
+  STOCK_E2E_SFTP_PASSWORD: sftpLogin.password,
 }
 
 // Adobe Stock takes pictures of 4 megapixels and more, so smaller ones would be listed as problems.
