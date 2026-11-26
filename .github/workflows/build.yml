@@ -1,13 +1,14 @@
 name: Build desktop app
 
-# main is protected on GitHub: every job of checks.yml and every build is a required status check, and pull
-# requests merge through auto-merge. After renaming or adding a job, update the required list in the repository
-# settings, or pull requests wait forever.
+# main takes pull requests through a merge queue; the only required status check is `CI gate` (last job), so
+# jobs can be renamed or added without touching the repository settings. Add every new job to its `needs`.
 
 on:
   push:
     branches: [main]
   pull_request:
+  # the merge queue's run on main plus the queued pull requests
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -67,3 +68,14 @@ jobs:
             app/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 30
+
+  # Always runs and fails unless every job before it succeeded: a skipped required check would count as passed.
+  gate:
+    name: CI gate
+    needs: [app, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "checks: ${{ needs.app.result }}, builds: ${{ needs.build.result }}"
+          [ "${{ needs.app.result }}" = success ] && [ "${{ needs.build.result }}" = success ]
