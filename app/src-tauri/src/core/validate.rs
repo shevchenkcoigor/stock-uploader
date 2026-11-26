@@ -27,7 +27,7 @@ fn be_u32(bytes: &[u8], at: usize) -> Option<usize> {
 }
 
 fn utf16_be(bytes: &[u8]) -> String {
-    let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| u16::from_be_bytes([pair[0], pair[1]])).collect();
+    let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| u16::from_be_bytes([pair[0], pair[1]])).collect();
     String::from_utf16_lossy(&units)
 }
 
@@ -79,10 +79,7 @@ fn inspect_pixels(path: &Path, problems: &mut Vec<String>) -> Result<(), String>
     let (width, height) = decoder.dimensions();
     let megapixels = f64::from(width) * f64::from(height) / PIXELS_PER_MEGAPIXEL;
     if !(MIN_MEGAPIXELS..=MAX_MEGAPIXELS).contains(&megapixels) {
-        problems.push(format!(
-            "{megapixels:.1} MP is outside {}-{} MP",
-            MIN_MEGAPIXELS as u32, MAX_MEGAPIXELS as u32
-        ));
+        problems.push(format!("{megapixels:.1} MP is outside {}-{} MP", MIN_MEGAPIXELS as u32, MAX_MEGAPIXELS as u32));
     }
     // No embedded profile is treated as sRGB; a different profile is an error.
     if let Ok(Some(raw)) = decoder.icc_profile() {
@@ -101,10 +98,10 @@ pub fn validate_image(path: &Path) -> Vec<String> {
     if !matches!(suffix.to_lowercase().as_str(), ".jpg" | ".jpeg") {
         problems.push(format!("extension {} is not .jpg/.jpeg", py_repr(&suffix)));
     }
-    if let Ok(meta) = std::fs::metadata(path) {
-        if meta.len() > MAX_FILE_BYTES {
-            problems.push(format!("file is {:.1} MB, limit is 45 MB", meta.len() as f64 / BYTES_PER_MB));
-        }
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.len() > MAX_FILE_BYTES
+    {
+        problems.push(format!("file is {:.1} MB, limit is 45 MB", meta.len() as f64 / BYTES_PER_MB));
     }
     if let Err(error) = inspect_pixels(path, &mut problems) {
         problems.push(format!("cannot read image: {error}"));
@@ -115,7 +112,7 @@ pub fn validate_image(path: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
+    use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
 
     pub fn write_jpeg(path: &Path, width: u32, height: u32, shade: u8) {
         let pixels = vec![shade; (width * height * 3) as usize];

@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use super::metadata::Item;
@@ -128,7 +128,13 @@ pub fn sha256_of(path: &Path) -> std::io::Result<String> {
     Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub fn log_event(conn: &Connection, command: &str, message: &str, level: &str, filename: Option<&str>) -> AppResult<()> {
+pub fn log_event(
+    conn: &Connection,
+    command: &str,
+    message: &str,
+    level: &str,
+    filename: Option<&str>,
+) -> AppResult<()> {
     conn.execute(
         "INSERT INTO events (at, command, level, filename, message) VALUES (?, ?, ?, ?, ?)",
         params![now(), command, level, filename, message],
@@ -199,7 +205,12 @@ fn file_name(path: &Path) -> String {
     path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-fn problems_of(conn: &Connection, image: &Path, digest: &str, check_image: &dyn Fn(&Path) -> Vec<String>) -> AppResult<Vec<String>> {
+fn problems_of(
+    conn: &Connection,
+    image: &Path,
+    digest: &str,
+    check_image: &dyn Fn(&Path) -> Vec<String>,
+) -> AppResult<Vec<String>> {
     let mut problems = check_image(image);
     let duplicate: Option<String> = conn
         .query_row(
@@ -393,34 +404,54 @@ pub fn files_to_describe(conn: &Connection) -> AppResult<Vec<FileRow>> {
          FROM files WHERE status IN (?, ?, ?, ?) ORDER BY id",
     )?;
     let rows = stmt
-        .query_map(params![EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]], |row| {
-            Ok(FileRow {
-                filename: row.get(0)?,
-                path: row.get(1)?,
-                size: row.get(2)?,
-                title: row.get(3)?,
-                keywords: parse_keywords(&row.get::<_, String>(4)?),
-                category: row.get(5)?,
-                status: row.get(6)?,
-                error: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        })?
+        .query_map(
+            params![EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]],
+            |row| {
+                Ok(FileRow {
+                    filename: row.get(0)?,
+                    path: row.get(1)?,
+                    size: row.get(2)?,
+                    title: row.get(3)?,
+                    keywords: parse_keywords(&row.get::<_, String>(4)?),
+                    category: row.get(5)?,
+                    status: row.get(6)?,
+                    error: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )?
         .collect::<Result<_, _>>()?;
     Ok(rows)
 }
 
 /// Saves a person's edit. A file waiting for metadata becomes pending once it has a title and keywords.
 /// Only the editable statuses change: not invalid ones and not those already submitted.
-pub fn update_metadata(conn: &Connection, filename: &str, title: &str, keywords: &[String], category: &str) -> AppResult<bool> {
+pub fn update_metadata(
+    conn: &Connection,
+    filename: &str,
+    title: &str,
+    keywords: &[String],
+    category: &str,
+) -> AppResult<bool> {
     let keywords = keywords_json(keywords);
     let changed = conn.execute(
         "UPDATE files SET title = ?, keywords = ?, category = ?, updated_at = ?,
          status = CASE WHEN status = ? AND ? != '' AND ? != '[]' THEN ? ELSE status END
          WHERE filename = ? AND status IN (?, ?, ?, ?)",
         params![
-            title, keywords, category, now(), NEEDS_METADATA, title, keywords, PENDING, filename,
-            EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]
+            title,
+            keywords,
+            category,
+            now(),
+            NEEDS_METADATA,
+            title,
+            keywords,
+            PENDING,
+            filename,
+            EDITABLE_STATUSES[0],
+            EDITABLE_STATUSES[1],
+            EDITABLE_STATUSES[2],
+            EDITABLE_STATUSES[3]
         ],
     )?;
     Ok(changed > 0)
@@ -439,13 +470,20 @@ pub fn bulk_edit(conn: &Connection, filenames: &[String], tag: &str, category: O
         let row: Option<(String, String, String)> = tx
             .query_row(
                 "SELECT title, keywords, category FROM files WHERE filename = ? AND status IN (?, ?, ?, ?)",
-                params![filename, EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3]],
+                params![
+                    filename,
+                    EDITABLE_STATUSES[0],
+                    EDITABLE_STATUSES[1],
+                    EDITABLE_STATUSES[2],
+                    EDITABLE_STATUSES[3]
+                ],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
         let Some((title, raw_keywords, old_category)) = row else { continue };
         let mut keywords = parse_keywords(&raw_keywords);
-        if !tag.is_empty() && !keywords.iter().any(|word| word == tag) && keywords.len() < super::metadata::MAX_KEYWORDS {
+        if !tag.is_empty() && !keywords.iter().any(|word| word == tag) && keywords.len() < super::metadata::MAX_KEYWORDS
+        {
             keywords.push(tag.to_string());
         }
         update_metadata(&tx, filename, &title, &keywords, category.unwrap_or(&old_category))?;
@@ -474,7 +512,17 @@ pub fn set_status(conn: &Connection, filenames: &[String], status: &str) -> AppR
     );
     Ok(conn.execute(
         &sql,
-        params![status, reason, now(), status, EDITABLE_STATUSES[0], EDITABLE_STATUSES[1], EDITABLE_STATUSES[2], EDITABLE_STATUSES[3], names],
+        params![
+            status,
+            reason,
+            now(),
+            status,
+            EDITABLE_STATUSES[0],
+            EDITABLE_STATUSES[1],
+            EDITABLE_STATUSES[2],
+            EDITABLE_STATUSES[3],
+            names
+        ],
     )?)
 }
 
@@ -499,7 +547,12 @@ pub const RECAPTIONABLE: [&str; 3] = [NEEDS_METADATA, PENDING, REVIEW];
 
 /// Paths of new files waiting for a title and keywords; `names` narrows it to those files.
 /// With `redo` the picked files that already have a description count too.
-pub fn files_needing_metadata(conn: &Connection, limit: usize, names: Option<&[String]>, redo: bool) -> AppResult<Vec<PathBuf>> {
+pub fn files_needing_metadata(
+    conn: &Connection,
+    limit: usize,
+    names: Option<&[String]>,
+    redo: bool,
+) -> AppResult<Vec<PathBuf>> {
     let statuses: &[&str] = if redo && names.is_some() { &RECAPTIONABLE } else { &[NEEDS_METADATA] };
     let marks = vec!["?"; statuses.len()].join(",");
     let mut values: Vec<rusqlite::types::Value> = statuses.iter().map(|status| (*status).to_string().into()).collect();
@@ -576,9 +629,8 @@ pub struct QueueFile {
 
 /// Every file that is part of the upload (pending, uploaded or submitted) with its status, in upload order.
 pub fn queue_files(conn: &Connection) -> AppResult<Vec<QueueFile>> {
-    let mut stmt = conn.prepare(
-        "SELECT path, filename, status, size, error FROM files WHERE status IN (?, ?, ?) ORDER BY id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT path, filename, status, size, error FROM files WHERE status IN (?, ?, ?) ORDER BY id")?;
     let rows = stmt.query_map([PENDING, UPLOADED, SUBMITTED], |row| {
         Ok(QueueFile {
             path: row.get(0)?,
@@ -622,9 +674,6 @@ pub fn mark_uploaded(conn: &Connection, path: &Path) -> AppResult<()> {
 
 /// Marks every uploaded file as submitted; returns how many.
 pub fn mark_all_submitted(conn: &Connection) -> AppResult<usize> {
-    Ok(conn.execute(
-        "UPDATE files SET status = ?, updated_at = ? WHERE status = ?",
-        params![SUBMITTED, now(), UPLOADED],
-    )?)
+    Ok(conn
+        .execute("UPDATE files SET status = ?, updated_at = ? WHERE status = ?", params![SUBMITTED, now(), UPLOADED])?)
 }
-

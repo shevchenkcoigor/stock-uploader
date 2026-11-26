@@ -35,11 +35,7 @@ fn where_clause(filter: &EventFilter) -> (String, Vec<Value>) {
     let mut conditions = vec!["id > ?".to_string()];
     let mut params = vec![Value::Integer(filter.after_id)];
     if !filter.text.is_empty() {
-        let escaped = filter
-            .text
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
+        let escaped = filter.text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
         conditions.push("(message LIKE ? ESCAPE '\\' OR filename LIKE ? ESCAPE '\\')".into());
         let pattern = format!("%{escaped}%");
         params.push(Value::Text(pattern.clone()));
@@ -95,8 +91,6 @@ pub fn event_commands() -> AppResult<Vec<String>> {
         return Ok(vec![]);
     };
     let mut stmt = conn.prepare("SELECT DISTINCT command FROM events ORDER BY command")?;
-    let names = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<String>, _>>()?;
+    let names = stmt.query_map([], |row| row.get(0))?.collect::<Result<Vec<String>, _>>()?;
     Ok(names)
 }

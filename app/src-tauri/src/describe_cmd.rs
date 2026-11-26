@@ -8,7 +8,9 @@ use crate::db;
 use crate::error::{AppError, AppResult};
 
 /// Runs a change against the database on a worker thread: guarded and backed up before and after.
-pub(crate) async fn mutate<T: Send + 'static>(work: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static) -> AppResult<T> {
+pub(crate) async fn mutate<T: Send + 'static>(
+    work: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
     tauri::async_runtime::spawn_blocking(move || {
         let database = db::db_path();
         if let Some(parent) = database.parent() {
@@ -36,7 +38,12 @@ pub async fn describe_files() -> AppResult<Vec<state::FileRow>> {
 
 /// Saves a person's edit; `false` when the file is final (submitted) or not editable.
 #[tauri::command]
-pub async fn save_metadata(filename: String, title: String, keywords: Vec<String>, category: String) -> AppResult<bool> {
+pub async fn save_metadata(
+    filename: String,
+    title: String,
+    keywords: Vec<String>,
+    category: String,
+) -> AppResult<bool> {
     mutate(move |conn| state::update_metadata(conn, &filename, title.trim(), &keywords, &category)).await
 }
 
@@ -49,7 +56,12 @@ pub struct BulkResult {
 
 /// A keyword and/or category for several files, and/or a new status; empty parts change nothing.
 #[tauri::command]
-pub async fn bulk_apply(names: Vec<String>, tag: String, category: Option<String>, status: Option<String>) -> AppResult<BulkResult> {
+pub async fn bulk_apply(
+    names: Vec<String>,
+    tag: String,
+    category: Option<String>,
+    status: Option<String>,
+) -> AppResult<BulkResult> {
     mutate(move |conn| {
         let wants_edit = !tag.trim().is_empty() || category.is_some();
         let edited = wants_edit.then(|| state::bulk_edit(conn, &names, &tag, category.as_deref())).transpose()?;

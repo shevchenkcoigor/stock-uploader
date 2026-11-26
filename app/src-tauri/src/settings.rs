@@ -61,10 +61,7 @@ fn from_map(map: &PrefMap) -> SettingsDto {
 /// `host`, `sftp://host/` or `host:22` pasted from a docs page all mean the bare host name.
 fn bare_hostname(value: &str) -> String {
     let trimmed = value.trim();
-    let without_scheme = trimmed
-        .strip_prefix("sftp://")
-        .or_else(|| trimmed.strip_prefix("ssh://"))
-        .unwrap_or(trimmed);
+    let without_scheme = trimmed.strip_prefix("sftp://").or_else(|| trimmed.strip_prefix("ssh://")).unwrap_or(trimmed);
     let host = without_scheme.split('/').next().unwrap_or("");
     match host.rsplit_once(':') {
         Some((name, _)) if host.matches(':').count() == 1 => name.to_string(),
@@ -130,10 +127,7 @@ fn merged(map: &PrefMap, dto: &SettingsDto) -> PrefMap {
 
 fn view(dto: SettingsDto) -> SettingsView {
     let data_dir = prefs::legacy_data_dir();
-    SettingsView {
-        settings: dto,
-        default_db_path: data_dir.join("state.db").display().to_string(),
-    }
+    SettingsView { settings: dto, default_db_path: data_dir.join("state.db").display().to_string() }
 }
 
 #[tauri::command]
@@ -175,9 +169,7 @@ pub fn sftp_login() -> AppResult<SftpLogin> {
 }
 
 pub fn claude_path_setting() -> String {
-    prefs::load()
-        .map(|map| prefs::text(&map, "claude_path", ""))
-        .unwrap_or_default()
+    prefs::load().map(|map| prefs::text(&map, "claude_path", "")).unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -28,8 +28,5 @@ pub fn open_read_only() -> AppResult<Option<Connection>> {
     if !path.exists() {
         return Ok(None);
     }
-    Ok(Some(Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?))
+    Ok(Some(Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?))
 }

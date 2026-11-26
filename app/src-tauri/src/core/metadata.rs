@@ -22,8 +22,7 @@ pub static AI_TERMS: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("valid regex")
 });
-static NUMBER_ONLY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^[\d\s.,x*-]+$").expect("valid regex"));
+static NUMBER_ONLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^[\d\s.,x*-]+$").expect("valid regex"));
 static FILE_INFO: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:jpe?g|png|tiff?|\d+\s*(?:mp|mb|kb|px|dpi)|megapixels?)\b").expect("valid regex")
 });
@@ -43,9 +42,8 @@ pub fn read_source(path: &Path) -> Result<Vec<Item>, String> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(content);
     let headers = reader.headers().map_err(|error| format!("{}: {error}", path.display()))?.clone();
     let column = |name: &str| headers.iter().position(|header| header == name);
-    let required = |name: &str| {
-        column(name).ok_or_else(|| format!("{}: в metadata.csv нет колонки «{name}»", path.display()))
-    };
+    let required =
+        |name: &str| column(name).ok_or_else(|| format!("{}: в metadata.csv нет колонки «{name}»", path.display()));
     let (filename, title, keywords) = (required("filename")?, required("title")?, required("keywords")?);
     let category = column("category");
     let mut items = Vec::new();
@@ -137,10 +135,8 @@ pub fn check_items(items: &[Item], existing_files: &HashSet<String>, ai_label: &
             problems.push(format!("{name}: title longer than {MAX_TITLE_CHARS}"));
         }
         if let Some(found) = AI_TERMS.find(&without_ai_label(&item.title, ai_label)) {
-            problems.push(format!(
-                "{name}: title mentions {}; Adobe labels AI content itself",
-                py_repr(found.as_str())
-            ));
+            problems
+                .push(format!("{name}: title mentions {}; Adobe labels AI content itself", py_repr(found.as_str())));
         }
         if item.keywords.is_empty() {
             problems.push(format!("{name}: no keywords"));
@@ -149,10 +145,7 @@ pub fn check_items(items: &[Item], existing_files: &HashSet<String>, ai_label: &
             problems.push(format!("{name}: more than {MAX_KEYWORDS} keywords"));
         }
         if let Some(banned) = item.keywords.iter().find(|keyword| AI_TERMS.is_match(keyword)) {
-            problems.push(format!(
-                "{name}: keyword {} mentions AI; Adobe labels AI content itself",
-                py_repr(banned)
-            ));
+            problems.push(format!("{name}: keyword {} mentions AI; Adobe labels AI content itself", py_repr(banned)));
         }
         for keyword in &item.keywords {
             if let Some(reason) = keyword_problem(keyword) {
@@ -189,7 +182,8 @@ mod tests {
 
     #[test]
     fn clean_item_has_no_problems() {
-        let problems = check_items(&[item("a.jpg", "A red fox", &["fox", "animal"])], &names(&["a.jpg"]), "Generative AI");
+        let problems =
+            check_items(&[item("a.jpg", "A red fox", &["fox", "animal"])], &names(&["a.jpg"]), "Generative AI");
         assert!(problems.is_empty(), "{problems:?}");
     }
 

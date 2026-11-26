@@ -14,13 +14,7 @@ pub struct ApproveReport {
 /// Moves files to `status` by hand.
 pub fn set_status(conn: &Connection, names: &[String], status: &str) -> AppResult<ApproveReport> {
     let count = state::set_status(conn, names, status)?;
-    state::log_event(
-        conn,
-        "status",
-        &format!("{count} of {} files moved to {status}", names.len()),
-        "info",
-        None,
-    )?;
+    state::log_event(conn, "status", &format!("{count} of {} files moved to {status}", names.len()), "info", None)?;
     Ok(ApproveReport { count })
 }
 
@@ -87,7 +81,11 @@ mod tests {
 
     #[test]
     fn bulk_edit_appends_the_tag_once_and_sets_the_category() {
-        let conn = db_with(&[("a.jpg", "pending", "T", &["fox"]), ("b.jpg", "pending", "T", &["tag"]), ("c.jpg", "submitted", "T", &["x"])]);
+        let conn = db_with(&[
+            ("a.jpg", "pending", "T", &["fox"]),
+            ("b.jpg", "pending", "T", &["tag"]),
+            ("c.jpg", "submitted", "T", &["x"]),
+        ]);
         let touched = state::bulk_edit(&conn, &names(&["a.jpg", "b.jpg", "c.jpg"]), "tag", Some("7")).unwrap();
         assert_eq!(touched, 2);
         let rows = state::files_to_describe(&conn).unwrap();
@@ -99,11 +97,16 @@ mod tests {
 
     #[test]
     fn status_moves_need_text_except_back_to_new() {
-        let conn = db_with(&[("a.jpg", "pending", "T", &["k"]), ("b.jpg", "needs_metadata", "", &[]), ("s.jpg", "submitted", "T", &["k"])]);
+        let conn = db_with(&[
+            ("a.jpg", "pending", "T", &["k"]),
+            ("b.jpg", "needs_metadata", "", &[]),
+            ("s.jpg", "submitted", "T", &["k"]),
+        ]);
         let report = set_status(&conn, &names(&["a.jpg", "b.jpg", "s.jpg"]), "review").unwrap();
         assert_eq!(report.count, 1, "b has no text and s is final");
         assert_eq!(status_of(&conn, "a.jpg"), "review");
-        let error: Option<String> = conn.query_row("SELECT error FROM files WHERE filename = 'a.jpg'", [], |r| r.get(0)).unwrap();
+        let error: Option<String> =
+            conn.query_row("SELECT error FROM files WHERE filename = 'a.jpg'", [], |r| r.get(0)).unwrap();
         assert_eq!(error.as_deref(), Some(state::MANUAL_REVIEW_REASON));
         set_status(&conn, &names(&["a.jpg"]), "needs_metadata").unwrap();
         assert_eq!(status_of(&conn, "a.jpg"), "needs_metadata");
@@ -118,7 +121,8 @@ mod tests {
         assert_eq!(status_of(&conn, "a.jpg"), "pending");
         assert_eq!(status_of(&conn, "b.jpg"), "review");
         assert_eq!(approve(&conn, None).unwrap().count, 1);
-        let message: String = conn.query_row("SELECT message FROM events ORDER BY id LIMIT 1", [], |r| r.get(0)).unwrap();
+        let message: String =
+            conn.query_row("SELECT message FROM events ORDER BY id LIMIT 1", [], |r| r.get(0)).unwrap();
         assert_eq!(message, "approved 1 files (a.jpg)");
     }
 }

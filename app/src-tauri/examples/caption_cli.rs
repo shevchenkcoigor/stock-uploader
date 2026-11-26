@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use app_lib::core::caption_run::{caption_files, CaptionOptions};
+use app_lib::core::caption_run::{CaptionOptions, caption_files};
 use app_lib::core::state;
 
 fn main() {
@@ -21,6 +21,7 @@ fn main() {
         redo: false,
         ai_label: "Generative AI",
     };
-    let report = caption_files(&conn, &options, &mut |done, total, msg| println!("{done}/{total} {msg}"), &|| false).expect("run");
+    let report = caption_files(&conn, &options, &mut |done, total, msg| println!("{done}/{total} {msg}"), &|| false)
+        .expect("run");
     println!("{report:#?}");
 }

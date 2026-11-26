@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType;
-use serde_json::{json, Value};
+use image::codecs::jpeg::JpegEncoder;
+use serde_json::{Value, json};
 
-use super::categories::{category_menu, is_category_code, CATEGORIES};
+use super::categories::{CATEGORIES, category_menu, is_category_code};
 use super::imaging;
-use super::metadata::{keyword_problem, AI_TERMS, MAX_KEYWORDS, MAX_TITLE_CHARS};
+use super::metadata::{AI_TERMS, MAX_KEYWORDS, MAX_TITLE_CHARS, keyword_problem};
 
 pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// (model id, short note shown in the picker); extend this list when new models appear.
@@ -45,7 +45,9 @@ pub fn model_title(model_id: &str) -> String {
         .filter(|part| !is_number(part))
         .map(|part| {
             let mut chars = part.chars();
-            chars.next().map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase())
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+            })
         })
         .collect();
     words.push(versions.join("."));
@@ -170,9 +172,26 @@ pub fn build_command(claude: &str, preview_dir: &Path, names: &[String], model: 
         names.join("\n")
     );
     [
-        claude, "-p", &prompt, "--model", model, "--output-format", "json", "--tools", "Read", "--strict-mcp-config",
-        "--disable-slash-commands", "--setting-sources", "", "--no-session-persistence", "--system-prompt",
-        &system_prompt(), "--add-dir", &preview_dir.to_string_lossy(), "--json-schema", &response_schema().to_string(),
+        claude,
+        "-p",
+        &prompt,
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--tools",
+        "Read",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--setting-sources",
+        "",
+        "--no-session-persistence",
+        "--system-prompt",
+        &system_prompt(),
+        "--add-dir",
+        &preview_dir.to_string_lossy(),
+        "--json-schema",
+        &response_schema().to_string(),
     ]
     .iter()
     .map(|part| (*part).to_string())
@@ -218,7 +237,10 @@ pub fn run_claude(command: &[String], cwd: &Path) -> Result<String, ClaudeCallEr
             Ok(None) if started.elapsed() >= CALL_TIMEOUT => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(ClaudeCallError(format!("claude did not run: timed out after {} seconds", CALL_TIMEOUT.as_secs())));
+                return Err(ClaudeCallError(format!(
+                    "claude did not run: timed out after {} seconds",
+                    CALL_TIMEOUT.as_secs()
+                )));
             }
             Ok(None) => std::thread::sleep(POLL_INTERVAL),
             Err(error) => return Err(ClaudeCallError(format!("claude did not run: {error}"))),
@@ -236,10 +258,13 @@ pub fn run_claude(command: &[String], cwd: &Path) -> Result<String, ClaudeCallEr
 
 /// Extracts {file: item} from the CLI's JSON envelope.
 pub fn parse_items(stdout: &str) -> Result<HashMap<String, Value>, ClaudeCallError> {
-    let envelope: Value = serde_json::from_str(stdout)
-        .map_err(|_| ClaudeCallError(format!("output is not JSON: {}", head(stdout))))?;
+    let envelope: Value =
+        serde_json::from_str(stdout).map_err(|_| ClaudeCallError(format!("output is not JSON: {}", head(stdout))))?;
     if envelope.get("is_error").and_then(Value::as_bool) == Some(true) {
-        let result = envelope.get("result").map_or_else(|| "None".to_string(), |value| value.as_str().map_or_else(|| value.to_string(), str::to_string));
+        let result = envelope.get("result").map_or_else(
+            || "None".to_string(),
+            |value| value.as_str().map_or_else(|| value.to_string(), str::to_string),
+        );
         return Err(ClaudeCallError(format!("claude reported an error: {}", head(&result))));
     }
     let payload = match envelope.get("structured_output").filter(|value| !value.is_null()) {
@@ -254,10 +279,7 @@ pub fn parse_items(stdout: &str) -> Result<HashMap<String, Value>, ClaudeCallErr
         .get("items")
         .and_then(Value::as_array)
         .ok_or_else(|| ClaudeCallError("response has no 'items' list".to_string()))?;
-    Ok(items
-        .iter()
-        .filter_map(|item| Some((item.get("file")?.as_str()?.to_string(), item.clone())))
-        .collect())
+    Ok(items.iter().filter_map(|item| Some((item.get("file")?.as_str()?.to_string(), item.clone()))).collect())
 }
 
 fn text_of(value: Option<&Value>) -> String {
@@ -270,8 +292,11 @@ fn text_of(value: Option<&Value>) -> String {
 
 fn result_from(source: &Path, item: &Value) -> CaptionResult {
     let title = clean_title(&text_of(item.get("title")));
-    let raw_keywords: Vec<String> =
-        item.get("keywords").and_then(Value::as_array).map(|list| list.iter().map(|word| text_of(Some(word))).collect()).unwrap_or_default();
+    let raw_keywords: Vec<String> = item
+        .get("keywords")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().map(|word| text_of(Some(word))).collect())
+        .unwrap_or_default();
     let keywords = clean_keywords(&raw_keywords);
     if title.is_empty() || keywords.is_empty() {
         return CaptionResult::failed(source, "empty title or keywords");
@@ -302,7 +327,7 @@ pub fn caption_group(sources: &[PathBuf], model: &str, claude: &str) -> Result<V
         match make_preview(source, &tmp.path().join(&name)) {
             Ok(()) => ready.push((name, source)),
             Err(error) => {
-                unreadable.insert(source, format!("{error}"));
+                unreadable.insert(source, error.to_string());
             }
         }
     }
@@ -334,9 +359,8 @@ pub mod tests {
     /// A fake `claude`: records its arguments next to itself and prints `output`.
     pub fn fake_claude(dir: &Path, output: &str, exit_code: i32) -> String {
         let script = dir.join("claude");
-        let body = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat <<'JSON'\n{output}\nJSON\nexit {exit_code}\n"
-        );
+        let body =
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat <<'JSON'\n{output}\nJSON\nexit {exit_code}\n");
         std::fs::write(&script, body).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         script.to_string_lossy().into_owned()
@@ -357,7 +381,8 @@ pub mod tests {
     fn titles_and_keywords_are_cleaned_like_the_python_app_does() {
         assert_eq!(clean_title(" \"A red fox\" generated by AI, "), "A red fox by");
         assert_eq!(clean_title(&"word ".repeat(80)).chars().count(), 199);
-        let words = ["Fox", "fox", "arctic fox; snow", "2024", "photo.jpg", "Midjourney", " Red   Sky "].map(String::from);
+        let words =
+            ["Fox", "fox", "arctic fox; snow", "2024", "photo.jpg", "Midjourney", " Red   Sky "].map(String::from);
         assert_eq!(clean_keywords(&words), vec!["fox", "arctic fox", "snow", "red sky"]);
         let many: Vec<String> = (0..80).map(|n| format!("kw{}x", n)).collect();
         assert_eq!(clean_keywords(&many).len(), MAX_KEYWORDS);
@@ -384,7 +409,16 @@ pub mod tests {
         assert_eq!((results[0].category.as_str(), results[0].content_type.as_str()), ("13", "photo"));
         assert_eq!(results[1].error.as_deref(), Some("empty title or keywords"));
         let args = std::fs::read_to_string(format!("{claude}.args")).unwrap();
-        for expected in ["-p", "--model\nclaude-haiku-5-5", "--output-format\njson", "--tools\nRead", "--strict-mcp-config", "--add-dir", "--json-schema", "img001.jpg\nimg002.jpg"] {
+        for expected in [
+            "-p",
+            "--model\nclaude-haiku-5-5",
+            "--output-format\njson",
+            "--tools\nRead",
+            "--strict-mcp-config",
+            "--add-dir",
+            "--json-schema",
+            "img001.jpg\nimg002.jpg",
+        ] {
             assert!(args.contains(expected), "missing {expected:?} in {args}");
         }
     }
@@ -395,7 +429,7 @@ pub mod tests {
         let failing = fake_claude(dir.path(), "usage limit reached", 1);
         let good = dir.path().join("a.jpg");
         write_jpeg(&good, 10);
-        let error = caption_group(&[good.clone()], "m", &failing).unwrap_err();
+        let error = caption_group(std::slice::from_ref(&good), "m", &failing).unwrap_err();
         assert!(error.0.starts_with("claude exited with 1: "), "{error}");
 
         let claude = fake_claude(dir.path(), ENVELOPE, 0);
@@ -418,7 +452,12 @@ pub mod tests {
     #[test]
     fn responses_without_usable_content_are_errors() {
         assert!(parse_items("not json").unwrap_err().0.starts_with("output is not JSON: "));
-        assert!(parse_items(r#"{"is_error":true,"result":"limit"}"#).unwrap_err().0.contains("claude reported an error: limit"));
+        assert!(
+            parse_items(r#"{"is_error":true,"result":"limit"}"#)
+                .unwrap_err()
+                .0
+                .contains("claude reported an error: limit")
+        );
         assert_eq!(parse_items(r#"{"result":"plain text"}"#).unwrap_err().0, "no structured output in the response");
         assert_eq!(parse_items(r#"{"structured_output":{}}"#).unwrap_err().0, "response has no 'items' list");
         let from_text = parse_items(r#"{"result":"{\"items\":[{\"file\":\"x\"}]}"}"#).unwrap();
@@ -428,6 +467,9 @@ pub mod tests {
     #[test]
     fn the_schema_lists_the_category_codes() {
         let schema = response_schema();
-        assert_eq!(schema["properties"]["items"]["items"]["properties"]["category"]["enum"].as_array().unwrap().len(), 21);
+        assert_eq!(
+            schema["properties"]["items"]["items"]["properties"]["category"]["enum"].as_array().unwrap().len(),
+            21
+        );
     }
 }

@@ -74,7 +74,8 @@ fn same_file(first: &Path, second: &Path) -> bool {
 
 fn embedded_jpeg(src: &Path, meta: &EmbedMeta) -> AppResult<Jpeg> {
     let mut jpeg = read_jpeg(src)?;
-    let existing_app13 = jpeg.segments().iter().find(|segment| is_photoshop(segment)).map(|segment| segment.contents().to_vec());
+    let existing_app13 =
+        jpeg.segments().iter().find(|segment| is_photoshop(segment)).map(|segment| segment.contents().to_vec());
     jpeg.segments_mut().retain(|segment| !is_xmp(segment) && !is_photoshop(segment));
     let iim = iptc::build_iim(meta)?;
     let app13 = checked_segment(markers::APP13, iptc::merge_app13(existing_app13.as_deref(), &iim), "IPTC")?;
@@ -91,7 +92,10 @@ fn embedded_jpeg(src: &Path, meta: &EmbedMeta) -> AppResult<Jpeg> {
 /// source had. `src` is never modified; the copy is read back and checked before it is kept.
 pub fn write_embedded(src: &Path, dst: &Path, meta: &EmbedMeta) -> AppResult<()> {
     if same_file(src, dst) {
-        return Err(AppError::Invalid(format!("{} нельзя перезаписать: метаданные пишутся только в копию", src.display())));
+        return Err(AppError::Invalid(format!(
+            "{} нельзя перезаписать: метаданные пишутся только в копию",
+            src.display()
+        )));
     }
     let jpeg = embedded_jpeg(src, meta)?;
     if let Some(parent) = dst.parent() {
@@ -154,8 +158,8 @@ pub fn verify_embedded(path: &Path, meta: &EmbedMeta) -> AppResult<()> {
 mod tests {
     use super::*;
     use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
-    use img_parts::jpeg::{Jpeg, JpegSegment, markers};
     use img_parts::Bytes;
+    use img_parts::jpeg::{Jpeg, JpegSegment, markers};
 
     fn meta(title: &str) -> EmbedMeta {
         EmbedMeta {
@@ -168,9 +172,7 @@ mod tests {
     fn write_jpeg(path: &Path) {
         let pixels: Vec<u8> = (0..16 * 16 * 3).map(|i| (i % 251) as u8).collect();
         let file = std::fs::File::create(path).unwrap();
-        JpegEncoder::new(std::io::BufWriter::new(file))
-            .encode(&pixels, 16, 16, ExtendedColorType::Rgb8)
-            .unwrap();
+        JpegEncoder::new(std::io::BufWriter::new(file)).encode(&pixels, 16, 16, ExtendedColorType::Rgb8).unwrap();
     }
 
     fn segment_count(path: &Path, marker: u8) -> usize {
@@ -212,7 +214,8 @@ mod tests {
         let mut jpeg = Jpeg::from_bytes(std::fs::read(&src).unwrap().into()).unwrap();
         let foreign_xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>--v 5.2 Job ID: 963d</x:xmpmeta>".to_vec();
         jpeg.segments_mut().insert(0, JpegSegment::new_with_contents(markers::APP1, Bytes::from(foreign_xmp)));
-        jpeg.segments_mut().insert(1, JpegSegment::new_with_contents(markers::APP2, Bytes::from_static(b"ICC_PROFILE\0keep")));
+        jpeg.segments_mut()
+            .insert(1, JpegSegment::new_with_contents(markers::APP2, Bytes::from_static(b"ICC_PROFILE\0keep")));
         std::fs::write(&src, jpeg.encoder().bytes()).unwrap();
         write_embedded(&src, &dst, &meta("Blue wave")).unwrap();
         let bytes = std::fs::read(&dst).unwrap();

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use super::metadata::{check_items, read_source, Item, DEFAULT_AI_TITLE_LABEL};
+use super::metadata::{DEFAULT_AI_TITLE_LABEL, Item, check_items, read_source};
 use super::state::{self, ProgressFn, ScanResult};
 use super::validate::validate_image;
 use crate::error::{AppError, AppResult};
@@ -17,9 +17,7 @@ fn is_hidden(name: &std::ffi::OsStr) -> bool {
 }
 
 fn is_jpeg_name(path: &Path) -> bool {
-    path.extension()
-        .map(|ext| ext.to_string_lossy().to_lowercase())
-        .is_some_and(|ext| ext == "jpg" || ext == "jpeg")
+    path.extension().map(|ext| ext.to_string_lossy().to_lowercase()).is_some_and(|ext| ext == "jpg" || ext == "jpeg")
 }
 
 fn walk(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>) {
@@ -71,7 +69,11 @@ pub fn load_metadata(images: &[PathBuf]) -> AppResult<LoadedMetadata> {
         let source = parent.join(METADATA_FILE);
         if !rows_by_source.contains_key(&source) {
             let rows = if source.exists() {
-                read_source(&source).map_err(AppError::Check)?.into_iter().map(|item| (item.filename.clone(), item)).collect()
+                read_source(&source)
+                    .map_err(AppError::Check)?
+                    .into_iter()
+                    .map(|item| (item.filename.clone(), item))
+                    .collect()
             } else {
                 HashMap::new()
             };
@@ -80,7 +82,9 @@ pub fn load_metadata(images: &[PathBuf]) -> AppResult<LoadedMetadata> {
         let name = image.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(item) = rows_by_source[&source].get(&name) {
             let existing = HashSet::from([item.filename.clone()]);
-            loaded.problems.insert(image.clone(), check_items(std::slice::from_ref(item), &existing, DEFAULT_AI_TITLE_LABEL));
+            loaded
+                .problems
+                .insert(image.clone(), check_items(std::slice::from_ref(item), &existing, DEFAULT_AI_TITLE_LABEL));
             loaded.items.insert(image.clone(), item.clone());
         }
     }
@@ -135,15 +139,13 @@ pub fn scan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
+    use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
     use rusqlite::params;
 
     fn write_jpeg(path: &Path, shade: u8) {
         let pixels = vec![shade; 2000 * 2000 * 3];
         let file = std::fs::File::create(path).unwrap();
-        JpegEncoder::new(std::io::BufWriter::new(file))
-            .encode(&pixels, 2000, 2000, ExtendedColorType::Rgb8)
-            .unwrap();
+        JpegEncoder::new(std::io::BufWriter::new(file)).encode(&pixels, 2000, 2000, ExtendedColorType::Rgb8).unwrap();
     }
 
     fn folder_with(root: &Path, name: &str, files: &[(&str, u8)]) -> PathBuf {
@@ -203,7 +205,8 @@ mod tests {
         run_scan(&mut conn, &first);
         let report = run_scan(&mut conn, &second);
         assert_eq!(report.result.invalid, 1);
-        let error: String = conn.query_row("SELECT error FROM files WHERE status = 'invalid'", [], |r| r.get(0)).unwrap();
+        let error: String =
+            conn.query_row("SELECT error FROM files WHERE status = 'invalid'", [], |r| r.get(0)).unwrap();
         assert!(error.starts_with("same content as "), "{error}");
     }
 
@@ -223,7 +226,10 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(names[0], "a.jpg");
-        assert!(names[1].starts_with("a_") && names[1].ends_with(".jpg") && names[1].len() == "a_".len() + 8 + 4, "{names:?}");
+        assert!(
+            names[1].starts_with("a_") && names[1].ends_with(".jpg") && names[1].len() == "a_".len() + 8 + 4,
+            "{names:?}"
+        );
     }
 
     #[test]
@@ -251,7 +257,11 @@ mod tests {
         let report = run_scan(&mut conn, &folder);
         assert_eq!(report.result.invalid, 1);
         let warnings: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events WHERE level = 'warning' AND filename = ?", params!["bad.jpg"], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE level = 'warning' AND filename = ?",
+                params!["bad.jpg"],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(warnings, 1);
         let other = dir.path().join("f1_other");

@@ -4,8 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use rusqlite::backup::Backup;
 use rusqlite::Connection;
+use rusqlite::backup::Backup;
 
 use crate::error::{AppError, AppResult};
 
@@ -38,9 +38,9 @@ pub fn list_backups(dir: &Path, stem: &str) -> Vec<PathBuf> {
                 .flatten()
                 .map(|entry| entry.path())
                 .filter(|path| {
-                    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-                        name.starts_with(&prefix) && name.ends_with(BACKUP_SUFFIX)
-                    })
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(BACKUP_SUFFIX))
                 })
                 .collect()
         })
@@ -161,7 +161,9 @@ mod tests {
         make_db(&db);
         create_backup(&db, &dir.path().join("s_backups"), 5).unwrap();
         fs::remove_file(&db).unwrap();
-        let Err(AppError::StateDb(message)) = guard_state_db(&db) else { panic!("a missing db with backups must be refused") };
+        let Err(AppError::StateDb(message)) = guard_state_db(&db) else {
+            panic!("a missing db with backups must be refused")
+        };
         assert!(message.contains("s_backups"), "names where the backups are: {message}");
         assert!(!message.contains("restore"), "no command to run: {message}");
     }

@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use super::caption::{caption_group, CaptionResult, ClaudeCallError};
-use super::metadata::{check_items, with_ai_label, Item};
+use super::caption::{CaptionResult, ClaudeCallError, caption_group};
+use super::metadata::{Item, check_items, with_ai_label};
 use super::state::{self, Generated};
 use crate::error::AppResult;
 
@@ -121,7 +121,9 @@ pub fn caption_files(
                 .collect();
             handles
                 .into_iter()
-                .map(|handle| handle.join().unwrap_or_else(|_| Err(ClaudeCallError("captioning thread crashed".into()))))
+                .map(|handle| {
+                    handle.join().unwrap_or_else(|_| Err(ClaudeCallError("captioning thread crashed".into())))
+                })
                 .collect()
         });
         for (group, outcome) in window.iter().zip(outcomes) {
@@ -210,12 +212,17 @@ mod tests {
         let claude = fake_claude(dir.path(), GOOD, 0);
         let mut steps = Vec::new();
 
-        let report = caption_files(&conn, &options(&claude, "Generative AI"), &mut |d, t, _| steps.push((d, t)), &|| false).unwrap();
+        let report =
+            caption_files(&conn, &options(&claude, "Generative AI"), &mut |d, t, _| steps.push((d, t)), &|| false)
+                .unwrap();
 
         assert_eq!((report.total, report.captioned, report.flagged.len()), (2, 1, 1));
         assert_eq!(steps, vec![(2, 2)]);
         let row = |name: &str| -> (String, String, Option<String>) {
-            conn.query_row("SELECT status, title, error FROM files WHERE filename = ?", [name], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap()
+            conn.query_row("SELECT status, title, error FROM files WHERE filename = ?", [name], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap()
         };
         assert_eq!(row("p0.jpg"), ("pending".into(), "A red fox in snow Generative AI".into(), None));
         assert_eq!(row("p1.jpg").0, "review");

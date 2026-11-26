@@ -51,7 +51,13 @@ pub fn caption_models() -> AppResult<ModelList> {
     Ok(ModelList { models: MODELS.iter().map(|(id, note)| ModelChoice { id, note }).collect(), selected })
 }
 
-fn run(app: &AppHandle, control: &CaptionControl, names: Option<Vec<String>>, redo: bool, model: String) -> AppResult<CaptionReport> {
+fn run(
+    app: &AppHandle,
+    control: &CaptionControl,
+    names: Option<Vec<String>>,
+    redo: bool,
+    model: String,
+) -> AppResult<CaptionReport> {
     let config = settings::get_settings()?.settings;
     let claude = find_claude(&config.claude_path).ok_or_else(|| AppError::Check(CLAUDE_NOT_FOUND.to_string()))?;
     prefs::set_many(&[(MODEL_KEY, model.clone())])?;

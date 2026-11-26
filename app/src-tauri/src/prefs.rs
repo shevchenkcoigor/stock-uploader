@@ -22,10 +22,7 @@ pub fn legacy_data_dir() -> PathBuf {
 }
 
 fn settings_file() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_default()
-        .join(APP_ID)
-        .join("settings.json")
+    dirs::data_dir().unwrap_or_default().join(APP_ID).join("settings.json")
 }
 
 fn plist_value_text(value: &plist::Value) -> Option<String> {
@@ -45,9 +42,7 @@ fn import_legacy() -> PrefMap {
     let Ok(plist::Value::Dictionary(dict)) = plist::Value::from_file(prefs_dir.join(LEGACY_PLIST)) else {
         return PrefMap::new();
     };
-    dict.iter()
-        .filter_map(|(key, value)| plist_value_text(value).map(|text| (key.clone(), text)))
-        .collect()
+    dict.iter().filter_map(|(key, value)| plist_value_text(value).map(|text| (key.clone(), text))).collect()
 }
 
 pub fn load() -> AppResult<PrefMap> {

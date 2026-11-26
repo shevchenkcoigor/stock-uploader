@@ -1,10 +1,10 @@
 //! Uploading the pending files: the status is written after
 //! each file, so an interrupted run resumes where it stopped.
 
-use std::collections::HashMap;
 use rusqlite::Connection;
+use std::collections::HashMap;
 
-use super::export::{export_readiness, readiness_text, ExportReadiness};
+use super::export::{ExportReadiness, export_readiness, readiness_text};
 use super::sftp::Uploader;
 use super::state;
 use crate::error::AppResult;
@@ -77,7 +77,8 @@ pub fn upload_pending(
             size,
         };
         on_progress(progress(format!("uploading {name}"), 0, done));
-        let outcome = uploader.put(&file.export, name, &mut |sent| on_progress(progress(format!("uploading {name}"), sent, done)));
+        let outcome = uploader
+            .put(&file.export, name, &mut |sent| on_progress(progress(format!("uploading {name}"), sent, done)));
         done += 1;
         match outcome {
             Ok(()) => {
@@ -126,7 +127,7 @@ fn fail_run(conn: &Connection, mut report: UploadReport, error: &str) -> AppResu
 mod tests {
     use super::*;
     use crate::core::export::prepare_pending;
-    use image::{codecs::jpeg::JpegEncoder, ExtendedColorType};
+    use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
     use std::path::Path;
 
     struct Fake {
@@ -152,7 +153,9 @@ mod tests {
         for index in 0..count {
             let path = dir.path().join(format!("p{index}.jpg"));
             let file = std::fs::File::create(&path).unwrap();
-            JpegEncoder::new(std::io::BufWriter::new(file)).encode(&vec![index as u8; 16 * 16 * 3], 16, 16, ExtendedColorType::Rgb8).unwrap();
+            JpegEncoder::new(std::io::BufWriter::new(file))
+                .encode(&vec![index as u8; 16 * 16 * 3], 16, 16, ExtendedColorType::Rgb8)
+                .unwrap();
             conn.execute(
                 "INSERT INTO files (path, filename, size, sha256, root, status, title, keywords, category, updated_at)
                  VALUES (?, ?, 5, ?, '/r', 'pending', ?, '[\"k\"]', '1', 't')",
@@ -181,7 +184,13 @@ mod tests {
     fn every_file_is_uploaded_and_marked_one_by_one() {
         let (_dir, conn) = setup(3);
         let mut steps = Vec::new();
-        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |p| steps.push(p.message), &|| false).unwrap();
+        let report = upload_pending(
+            &conn,
+            || Ok(Box::new(Fake { sent: vec![], fail_on: None })),
+            &mut |p| steps.push(p.message),
+            &|| false,
+        )
+        .unwrap();
         assert_eq!((report.total, report.uploaded, report.failed.len(), report.stopped), (3, 3, 0, false));
         assert!(statuses(&conn).iter().all(|(status, error)| status == "uploaded" && error.is_none()));
         assert_eq!(steps.last().unwrap(), "uploaded p2.jpg");
@@ -190,7 +199,13 @@ mod tests {
     #[test]
     fn a_failed_file_keeps_its_error_and_stays_pending_while_the_rest_go_on() {
         let (_dir, conn) = setup(3);
-        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: Some("p1.jpg") })), &mut |_| {}, &|| false).unwrap();
+        let report = upload_pending(
+            &conn,
+            || Ok(Box::new(Fake { sent: vec![], fail_on: Some("p1.jpg") })),
+            &mut |_| {},
+            &|| false,
+        )
+        .unwrap();
         assert_eq!((report.uploaded, report.failed.clone()), (2, vec!["p1.jpg".to_string()]));
         let rows = statuses(&conn);
         assert_eq!(rows[1], ("pending".to_string(), Some("Permission denied".to_string())));
@@ -213,14 +228,17 @@ mod tests {
         let missing = upload_pending(&conn, never, &mut |_| {}, &|| false).unwrap();
         assert_eq!(missing.blocked, Some(readiness_text(ExportReadiness::Missing)));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
-        let last: String = conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+        let last: String =
+            conn.query_row("SELECT message FROM events ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
         assert!(last.starts_with("refused, "), "{last}");
     }
 
     #[test]
     fn a_connection_failure_ends_the_run_and_leaves_everything_pending() {
         let (_dir, conn) = setup(2);
-        let report = upload_pending(&conn, || Err("вход не выполнен: bad password".to_string()), &mut |_| {}, &|| false).unwrap();
+        let report =
+            upload_pending(&conn, || Err("вход не выполнен: bad password".to_string()), &mut |_| {}, &|| false)
+                .unwrap();
         assert_eq!(report.error.as_deref(), Some("cannot upload: вход не выполнен: bad password"));
         assert!(statuses(&conn).iter().all(|(status, _)| status == "pending"));
     }
@@ -228,7 +246,9 @@ mod tests {
     #[test]
     fn stopping_leaves_the_rest_untouched_and_an_empty_queue_never_connects() {
         let (_dir, conn) = setup(2);
-        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| true).unwrap();
+        let report =
+            upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| true)
+                .unwrap();
         assert!(report.stopped && report.uploaded == 0);
         assert!(statuses(&conn).iter().all(|(status, error)| status == "pending" && error.is_none()));
 
@@ -243,8 +263,13 @@ mod tests {
         conn.execute("UPDATE files SET status = 'uploaded' WHERE filename = 'p0.jpg'", []).unwrap();
         conn.execute("UPDATE files SET status = 'submitted' WHERE filename = 'p1.jpg'", []).unwrap();
         let queue = state::queue_files(&conn).unwrap();
-        assert_eq!(queue.iter().map(|file| file.status.as_str()).collect::<Vec<_>>(), ["uploaded", "submitted", "pending"]);
-        let report = upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| false).unwrap();
+        assert_eq!(
+            queue.iter().map(|file| file.status.as_str()).collect::<Vec<_>>(),
+            ["uploaded", "submitted", "pending"]
+        );
+        let report =
+            upload_pending(&conn, || Ok(Box::new(Fake { sent: vec![], fail_on: None })), &mut |_| {}, &|| false)
+                .unwrap();
         assert_eq!((report.total, report.uploaded), (1, 1));
     }
 }
