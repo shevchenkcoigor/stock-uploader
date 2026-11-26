@@ -22,7 +22,7 @@ cd app && npm run tauri dev  # разработка с горячей перез
 Нужны Node 22+ и Rust (https://rustup.rs); на Linux ещё `libwebkit2gtk-4.1-dev`,
 `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `libssl-dev`. Результат лежит в
 `app/src-tauri/target/release/bundle/`:
-- macOS: `macos/Adobe Stock Uploader.app` (запуск: `open "…/Adobe Stock Uploader.app"`) и `dmg/`;
+- macOS: `macos/Stock Uploader.app` (запуск: `open "…/Stock Uploader.app"`) и `dmg/`;
 - Windows: `msi/` и `nsis/` (не проверялось);
 - Linux: `appimage/` и `deb/` (не проверялось).
 
@@ -31,12 +31,12 @@ Tauri не собирает под чужую ОС: Windows-версию нуж�
 установленный и авторизованный Claude Code (`claude`); API-ключ не нужен.
 
 Сборка не подписана сертификатом Apple (подпись ad-hoc): на компьютере, где она собрана, запускается без
-предупреждений. Скачанный из интернета `.dmg` macOS помечает карантином и пишет «“Adobe Stock Uploader” is
+предупреждений. Скачанный из интернета `.dmg` macOS помечает карантином и пишет «“Stock Uploader” is
 damaged and can’t be opened» (кнопки «Всё равно открыть» в этом случае нет). Один раз после установки снимите
 пометку командой:
 
 ```bash
-xattr -cr "/Applications/Adobe Stock Uploader.app"
+xattr -cr "/Applications/Stock Uploader.app"
 ```
 
 Обновления, которые приложение скачивает само, карантин не получают: команда нужна только после ручной установки.
@@ -67,8 +67,14 @@ xattr -cr "/Applications/Adobe Stock Uploader.app"
 
 ## Первый запуск
 
-- **База.** По умолчанию создаётся новая база в `~/Library/Application Support/Adobe Stock Uploader/`.
+- **База.** По умолчанию создаётся новая база в `~/Library/Application Support/Stock Uploader/`.
   Чтобы работать с уже существующей, в «Настройках» выберите её файл `state.db`.
+- **Переход с «Adobe Stock Uploader».** При первом запуске приложение копирует `state.db`, `state_backups/` и
+  `export/` из `~/Library/Application Support/Adobe Stock Uploader/` в новую папку, проверяет копию и дальше
+  работает с ней; старая папка остаётся как есть. Не получилось скопировать — работает со старой и пробует
+  снова в следующий раз. Настройки и пароль SFTP тоже переносятся сами (macOS может спросить доступ к связке
+  ключей). Свой «Файл базы» не трогается. После перехода старую версию не открывайте: её изменения в новую
+  папку не попадут.
 - **SFTP.** Логин, хост и порт в «Настройках»; пароль хранится в системном хранилище (связка ключей macOS,
   Credential Manager, Secret Service), а не в файле. Кнопка «Проверить SFTP» входит на сервер, ничего не загружая.
 - **Claude.** Кнопка «Проверить Claude» показывает, где найден `claude` и какая версия. Приложение,
@@ -77,7 +83,7 @@ xattr -cr "/Applications/Adobe Stock Uploader.app"
 
 ## Папки и файлы
 
-Рядом с `state.db` (по умолчанию `~/Library/Application Support/Adobe Stock Uploader/`):
+Рядом с `state.db` (по умолчанию `~/Library/Application Support/Stock Uploader/`):
 
 | Папка / файл | Назначение |
 |---|---|
@@ -187,7 +193,8 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 
 - Перед и после каждой операции, которая меняет базу, делается копия в `state_backups/`
   (хранятся последние 30, права только на чтение). Другую папку можно задать переменной окружения
-  `ADOBE_BACKUP_DIR`.
+  `STOCK_BACKUP_DIR`. Переменные `STOCK_STATE_DB`, `STOCK_BACKUP_DIR` и `STOCK_CLAUDE_PATH` раньше начинались
+  с `ADOBE_`; старые имена тоже принимаются.
 - Если `state.db` пропал, а бэкапы есть, приложение остановится с подсказкой, а не создаст пустую базу и
   не перезальёт всё заново. То же при ошибке проверки целостности. Восстановление ручное: скопируйте
   самый свежий файл из `state_backups/` на место `state.db`.
@@ -204,7 +211,7 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 
 ## Проверка и тесты
 
-Версия Rust зафиксирована в `rust-toolchain.toml` (поднимать осознанно). Обновления библиотек и actions раз в
+Версия Node задана в `.nvmrc`, Версия Rust зафиксирована в `rust-toolchain.toml` (поднимать осознанно). Обновления библиотек и actions раз в
 неделю присылает Dependabot отдельными PR; сами они не сливаются.
 
 ```bash

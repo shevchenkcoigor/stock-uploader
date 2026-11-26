@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Adobe Stock Uploader",
+  "productName": "Stock Uploader",
   "version": "0.1.1",
-  "identifier": "com.adobe-stock-uploader.desktop",
+  "identifier": "com.stock-uploader.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Adobe Stock Uploader",
+        "title": "Stock Uploader",
         "width": 1280,
         "height": 720,
         "resizable": true,
@@ -41,7 +41,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3RDU3MTAxMjAzMERFNkUKUldSdTNqQWdBWEhWRjJQL1ZPK216YnIzdG1vUzlIRXB4SWpRZWxmT21MZnhZSW1zcEw2NEVLb0UK",
       "endpoints": [
-        "https://github.com/spiritEcosse/adobe-stock-uploader/releases/latest/download/latest.json"
+        "https://github.com/shevchenkcoigor/stock-uploader/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

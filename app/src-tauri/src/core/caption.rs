@@ -33,7 +33,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const ERROR_TAIL_CHARS: usize = 300;
 pub const CLAUDE_NOT_FOUND: &str =
-    "Claude Code (`claude`) was not found. Install it and log in, or set ADOBE_CLAUDE_PATH.";
+    "Claude Code (`claude`) was not found. Install it and log in, or set STOCK_CLAUDE_PATH.";
 
 /// A short name for a picker: claude-sonnet-5-5 -> Sonnet 5.5.
 pub fn model_title(model_id: &str) -> String {
@@ -317,7 +317,7 @@ fn result_from(source: &Path, item: &Value) -> CaptionResult {
 /// Captions several images in one call. Per-image problems are returned as errors.
 pub fn caption_group(sources: &[PathBuf], model: &str, claude: &str) -> Result<Vec<CaptionResult>, ClaudeCallError> {
     let tmp = tempfile::Builder::new()
-        .prefix("adobe_caption_")
+        .prefix("stock_caption_")
         .tempdir()
         .map_err(|error| ClaudeCallError(format!("claude did not run: {error}")))?;
     let mut ready: Vec<(String, &PathBuf)> = Vec::new();

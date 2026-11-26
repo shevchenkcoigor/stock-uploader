@@ -9,7 +9,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let db = args.next().expect("db path");
     let limit: usize = args.next().expect("limit").parse().expect("number");
-    let claude = std::env::var("ADOBE_CLAUDE_PATH").unwrap_or_else(|_| "claude".to_string());
+    let claude = std::env::var("STOCK_CLAUDE_PATH").unwrap_or_else(|_| "claude".to_string());
     let conn = state::open_db(Path::new(&db)).expect("open");
     let options = CaptionOptions {
         model: "claude-haiku-5-5",

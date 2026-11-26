@@ -4,23 +4,82 @@ use keyring::Entry;
 
 use crate::error::AppResult;
 
-const SERVICE: &str = "adobe-stock-uploader";
+const SERVICE: &str = "stock-uploader";
+/// The previous app name's entry: read when the new one is empty, never deleted.
+const OLD_SERVICE: &str = "adobe-stock-uploader";
 const ACCOUNT: &str = "sftp";
 
-fn entry() -> AppResult<Entry> {
-    Ok(Entry::new(SERVICE, ACCOUNT)?)
+fn entry(service: &str) -> AppResult<Entry> {
+    Ok(Entry::new(service, ACCOUNT)?)
 }
 
-/// Reading may make macOS ask for the Mac password, so call it only when the password is needed.
-pub fn get() -> AppResult<String> {
-    match entry()?.get_password() {
-        Ok(password) => Ok(password),
-        Err(keyring::Error::NoEntry) => Ok(String::new()),
+fn read(service: &str) -> AppResult<Option<String>> {
+    match entry(service)?.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
 
+/// The current password, or else the old one, which is then saved under the new name.
+fn carried_over(
+    current: AppResult<Option<String>>,
+    old: impl FnOnce() -> AppResult<Option<String>>,
+    save: impl FnOnce(&str) -> AppResult<()>,
+) -> AppResult<String> {
+    if let Some(password) = current? {
+        return Ok(password);
+    }
+    let Some(password) = old()? else { return Ok(String::new()) };
+    // the password is usable even if saving it fails; the next read tries again
+    if let Err(error) = save(&password) {
+        eprintln!("could not save the password under the new keychain name: {error}");
+    }
+    Ok(password)
+}
+
+/// Reading may make macOS ask for the Mac password, so call it only when the password is needed.
+pub fn get() -> AppResult<String> {
+    carried_over(read(SERVICE), || read(OLD_SERVICE), set)
+}
+
 pub fn set(password: &str) -> AppResult<()> {
-    entry()?.set_password(password)?;
+    entry(SERVICE)?.set_password(password)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::*;
+    use crate::error::AppError;
+
+    fn run(current: Option<&str>, old: Option<&str>) -> (String, Vec<String>) {
+        let saved = RefCell::new(Vec::new());
+        let password = carried_over(
+            Ok(current.map(String::from)),
+            || Ok(old.map(String::from)),
+            |value| {
+                saved.borrow_mut().push(value.to_string());
+                Ok(())
+            },
+        )
+        .unwrap();
+        (password, saved.into_inner())
+    }
+
+    #[test]
+    fn the_old_password_is_carried_over_only_when_there_is_no_new_one() {
+        assert_eq!(run(Some("new"), Some("old")), ("new".into(), vec![]));
+        assert_eq!(run(None, Some("old")), ("old".into(), vec!["old".to_string()]));
+        assert_eq!(run(None, None), (String::new(), vec![]));
+    }
+
+    #[test]
+    fn a_failed_save_still_returns_the_password() {
+        let password = carried_over(Ok(None), || Ok(Some("old".into())), |_| Err(AppError::Check("locked".into())));
+
+        assert_eq!(password.unwrap(), "old");
+    }
 }

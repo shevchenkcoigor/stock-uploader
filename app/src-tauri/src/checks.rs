@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use ssh2::Session;
 
+use crate::core::env;
 use crate::error::{AppError, AppResult};
 use crate::settings::{claude_path_setting, sftp_login};
 
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
-const CLAUDE_ENV: &str = "ADOBE_CLAUDE_PATH";
+const CLAUDE_ENV: &str = "STOCK_CLAUDE_PATH";
+const LEGACY_CLAUDE_ENV: &str = "ADOBE_CLAUDE_PATH";
 // Apps started from Finder do not get the shell's PATH, so look where Claude Code usually installs itself.
 const CLAUDE_DIRS: [&str; 6] =
     ["~/.local/bin", "~/.claude/local", "~/.npm-global/bin", "~/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin"];
@@ -37,7 +39,7 @@ fn on_path() -> Vec<PathBuf> {
 /// The configured path (setting, then the env variable), else the first `claude` on PATH or a usual dir.
 pub fn find_claude(configured: &str) -> Option<PathBuf> {
     let configured = if configured.trim().is_empty() {
-        std::env::var(CLAUDE_ENV).unwrap_or_default()
+        env::var(CLAUDE_ENV, LEGACY_CLAUDE_ENV).and_then(|value| value.into_string().ok()).unwrap_or_default()
     } else {
         configured.to_string()
     };

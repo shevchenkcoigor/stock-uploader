@@ -1,13 +1,14 @@
 name: Build desktop app
 
-# main is protected on GitHub: every job of checks.yml and every build is a required status check, and pull
-# requests merge through auto-merge. After renaming or adding a job, update the required list in the repository
-# settings, or pull requests wait forever.
+# main takes pull requests through a merge queue; the only required status check is `CI gate` (last job), so
+# jobs can be renamed or added without touching the repository settings. Add every new job to its `needs`.
 
 on:
   push:
     branches: [main]
   pull_request:
+  # the merge queue's run on main plus the queued pull requests
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -36,10 +37,10 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: rustup toolchain install # as in rust-toolchain.toml
@@ -55,9 +56,9 @@ jobs:
       - run: npm ci
       - name: Build
         run: npm run tauri -- build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: adobe-stock-uploader-${{ runner.os }}
+          name: stock-uploader-${{ runner.os }}
           # a .dmg / .msi / .exe / .AppImage / .deb from each OS; the unsigned .app itself is inside the .dmg
           path: |
             app/src-tauri/target/release/bundle/dmg/*.dmg
@@ -67,3 +68,14 @@ jobs:
             app/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 30
+
+  # Always runs and fails unless every job before it succeeded: a skipped required check would count as passed.
+  gate:
+    name: CI gate
+    needs: [app, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "checks: ${{ needs.app.result }}, builds: ${{ needs.build.result }}"
+          [ "${{ needs.app.result }}" = success ] && [ "${{ needs.build.result }}" = success ]

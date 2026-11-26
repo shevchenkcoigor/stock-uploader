@@ -5,11 +5,17 @@ updates:
   - package-ecosystem: npm
     directory: /app
     schedule: { interval: weekly }
+    # the types follow the Node version CI runs on; raise both together
+    ignore:
+      - { dependency-name: "@types/node", update-types: ["version-update:semver-major"] }
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: cargo
     directory: /app/src-tauri
     schedule: { interval: weekly }
+    # keyring 4 drops the features used here; move to it by hand
+    ignore:
+      - { dependency-name: keyring, update-types: ["version-update:semver-major"] }
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: github-actions
