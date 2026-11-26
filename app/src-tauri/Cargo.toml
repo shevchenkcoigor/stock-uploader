@@ -17,7 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.7.6", features = [] }
 
+[features]
+# The WebDriver server for the window tests (`app/e2e`). Never in a release: `lib.rs` refuses to compile it
+# without debug assertions, and CI checks that the default dependency tree does not contain it.
+e2e = ["dep:tauri-plugin-wdio-webdriver"]
+
 [dependencies]
+tauri-plugin-wdio-webdriver = { version = "1.5", optional = true }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.12.7", features = [] }

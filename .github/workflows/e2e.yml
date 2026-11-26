@@ -1,0 +1,79 @@
+name: Window tests
+
+# The app is built with the WebDriver server and driven through its window (app/e2e). Deliberately a workflow
+# of its own and not part of `CI gate` yet: make it required after it has been stable for a week or two (#59).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  window:
+    name: Window tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: app/e2e
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            app/e2e/package-lock.json
+      - run: rustup toolchain install # as in rust-toolchain.toml
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: Tauri system libraries, virtual display and recorder
+        if: runner.os == 'Linux'
+        timeout-minutes: 10 # apt-get has hung for 20+ minutes before
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev xvfb ffmpeg
+      - run: npm ci
+        working-directory: app
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Build the app with the WebDriver server
+        run: npm run build:app
+      - name: Test (Linux, on a recorded virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" ./record.sh
+      - name: Test
+        if: runner.os != 'Linux'
+        run: npm test
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: window-tests-${{ runner.os }}
+          path: |
+            app/e2e/artifacts/screenshots
+            app/e2e/artifacts/logs
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Video of the failed run
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: window-tests-video
+          path: app/e2e/artifacts/run.mp4
+          if-no-files-found: warn
+          retention-days: 7

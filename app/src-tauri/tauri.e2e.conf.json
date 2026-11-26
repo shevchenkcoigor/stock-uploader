@@ -1,0 +1,20 @@
+{
+  "identifier": "com.stock-uploader.e2e",
+  "app": {
+    "security": {
+      "capabilities": [
+        "default",
+        {
+          "identifier": "e2e",
+          "windows": ["main"],
+          "permissions": ["wdio-webdriver:default"]
+        }
+      ]
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://127.0.0.1:9/no-updates-in-tests.json"]
+    }
+  }
+}
