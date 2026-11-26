@@ -18,7 +18,7 @@ cd app/src-tauri && cargo test --lib core::export     # Rust tests matching a pa
 cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings   # Rust format and lint (CI)
 ```
 
-There is no commit hook (there is no Python to host pre-commit); CI runs the checks in `checks.yml` (lint, vitest, build, `cargo fmt`/`clippy`/`test`, dependency audit) on every pull request, so run them locally only when you want faster feedback.
+`cd app && npm run fix` applies the automatic fixes. `.githooks/pre-commit` only checks `cargo fmt` and `oxlint` for staged files (enable once: `git config core.hooksPath .githooks`); CI runs the checks in `checks.yml` (lint, vitest, build, `cargo fmt`/`clippy`/`test`, dependency audit) on every pull request, so run them locally only when you want faster feedback.
 
 ## Architecture
 

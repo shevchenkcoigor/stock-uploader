@@ -210,7 +210,12 @@ cd app/src-tauri && cargo test                        # ядро на Rust
 cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings   # формат и статический анализ
 ```
 
-Коммит-хука нет: те же проверки запускает CI на каждом pull request и перед релизом (`checks.yml`), плюс тесты
+Исправить то, что чинится автоматически: `cd app && npm run fix` (`oxlint --fix`, `cargo clippy --fix`,
+`cargo fmt`).
+
+Хуки включаются один раз на клон: `git config core.hooksPath .githooks`. `pre-commit` только проверяет
+(`cargo fmt --check` для изменённого Rust, `oxlint` для изменённого TypeScript) и файлы не меняет;
+`pre-push` не даёт пушить в `main`. Полный набор проверок запускает CI на каждом pull request и перед релизом (`checks.yml`), плюс тесты
 Rust на macOS и аудит зависимостей (`npm audit`, `cargo audit`). Сборки начинаются только после всех проверок.
 
 ## Что не проверено или не доделано
