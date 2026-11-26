@@ -1,6 +1,7 @@
 name: Checks
 
-# Shared by build.yml (pull requests and main) and release.yml (before a release).
+# Shared by build.yml (pull requests and main) and release.yml (before a release). Both start their builds only
+# after every job here passed.
 on:
   workflow_call:
 
@@ -22,6 +23,8 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
@@ -33,6 +36,47 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: cargo fmt
+        working-directory: app/src-tauri
+        run: cargo fmt --check
+      - name: cargo clippy
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
       - name: cargo test
         working-directory: app/src-tauri
         run: cargo test
+
+  # Catches platform-specific breakage. Not on Windows yet: the stand-in `claude` of the caption tests is a
+  # Unix shell script.
+  macos:
+    name: Rust tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: cargo test
+        working-directory: app/src-tauri
+        run: cargo test
+
+  # Known vulnerabilities in npm packages and Rust crates. A newly published advisory can turn this red without
+  # any change in the code.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: npm audit
+        working-directory: app
+        run: npm audit --audit-level=high
+      - name: cargo audit
+        working-directory: app/src-tauri
+        run: cargo audit

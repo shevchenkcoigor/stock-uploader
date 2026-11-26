@@ -207,9 +207,11 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 ```bash
 cd app && npm run lint && npm test && npm run build   # фронтенд: линтер, тесты, типы и сборка
 cd app/src-tauri && cargo test                        # ядро на Rust
+cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings   # формат и статический анализ
 ```
 
-Коммит-хука нет: те же проверки запускает CI на каждом pull request.
+Коммит-хука нет: те же проверки запускает CI на каждом pull request и перед релизом (`checks.yml`), плюс тесты
+Rust на macOS и аудит зависимостей (`npm audit`, `cargo audit`). Сборки начинаются только после всех проверок.
 
 ## Что не проверено или не доделано
 
