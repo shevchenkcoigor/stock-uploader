@@ -96,8 +96,6 @@ jobs:
         with:
           projectPath: app
           releaseId: ${{ needs.draft.outputs.release_id }}
-          # still needed: builds the download URLs in latest.json and its notes
-          tagName: ${{ github.ref_name }}
           releaseBody: See the commit history for changes.
           releaseDraft: true
           args: --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
