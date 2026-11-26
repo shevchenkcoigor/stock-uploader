@@ -204,6 +204,9 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 
 ## Проверка и тесты
 
+Версия Rust зафиксирована в `rust-toolchain.toml` (поднимать осознанно). Обновления библиотек и actions раз в
+неделю присылает Dependabot отдельными PR; сами они не сливаются.
+
 ```bash
 cd app && npm run lint && npm test && npm run build   # фронтенд: линтер, тесты, типы и сборка
 cd app/src-tauri && cargo test                        # ядро на Rust
