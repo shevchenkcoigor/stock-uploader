@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { database, described, flagged, pictureNames, pictures, settingsFile } from '../environment.ts'
 
 const screenshots = resolve(import.meta.dirname, '../artifacts/screenshots')
+const MIN_TEXT_COLUMN = 100 // px; narrower and a cell shows next to nothing
 
 // Sidebar title and a text only that page shows.
 const PAGES = [
@@ -177,6 +178,22 @@ describe('the app window', () => {
 
   it('left the original pictures untouched', () => {
     expect(pictureHashes()).toEqual(originals)
+  })
+
+  it('leaves room for the title and the keywords in the table', async () => {
+    await openPage('2. Описание')
+    for (const size of ['S', 'M', 'L']) {
+      await visiblePage().$(`button=${size}`).click()
+      const widths = await browser.execute(() =>
+        [...document.querySelectorAll('main > div:not([hidden]) thead th')]
+          .filter((cell) => /^(Заголовок|Ключевые слова)/.test(cell.textContent ?? ''))
+          .map((cell) => cell.getBoundingClientRect().width),
+      )
+      await screenshot(`describe-columns-${size}`)
+      expect(widths).toHaveLength(2)
+      expect(Math.min(...widths)).toBeGreaterThanOrEqual(MIN_TEXT_COLUMN)
+    }
+    await visiblePage().$('button=M').click()
   })
 
   it('kept its settings and database inside the temporary folder', () => {
