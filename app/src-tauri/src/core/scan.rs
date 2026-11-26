@@ -240,11 +240,9 @@ mod tests {
         write_jpeg(&folder.join("deep/b.jpeg"), 40);
         std::fs::create_dir_all(folder.join(".cache")).unwrap();
         write_jpeg(&folder.join(".cache/c.jpg"), 50);
-        let names: Vec<String> = find_images(&folder, true)
-            .iter()
-            .map(|path| path.strip_prefix(&folder).unwrap().display().to_string())
-            .collect();
-        assert_eq!(names, vec!["a.jpg", "deep/b.jpeg"]);
+        let names: Vec<PathBuf> =
+            find_images(&folder, true).iter().map(|path| path.strip_prefix(&folder).unwrap().to_path_buf()).collect();
+        assert_eq!(names, vec![PathBuf::from("a.jpg"), Path::new("deep").join("b.jpeg")]);
         assert_eq!(find_images(&folder, false).len(), 1);
     }
 

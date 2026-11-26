@@ -354,16 +354,39 @@ pub fn caption_group(sources: &[PathBuf], model: &str, claude: &str) -> Result<V
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::sync::OnceLock;
 
-    /// A fake `claude`: records its arguments next to itself and prints `output`.
+    /// Compiles `testdata/fake_claude.rs` once per test run, next to the test binary.
+    fn fake_claude_program() -> &'static Path {
+        static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
+        PROGRAM.get_or_init(|| {
+            let name = format!("fake-claude{}", std::env::consts::EXE_SUFFIX);
+            let program = std::env::current_exe().unwrap().with_file_name(name);
+            // run from the crate, so that rust-toolchain.toml picks the compiler
+            let status = Command::new("rustc")
+                .args(["--edition", "2024", "src/core/testdata/fake_claude.rs", "-o"])
+                .arg(&program)
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .status()
+                .unwrap();
+            assert!(status.success(), "the stand-in claude did not compile");
+            program
+        })
+    }
+
+    /// A fake `claude` in `dir`: records its arguments next to itself and prints `output`.
     pub fn fake_claude(dir: &Path, output: &str, exit_code: i32) -> String {
-        let script = dir.join("claude");
-        let body =
-            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat <<'JSON'\n{output}\nJSON\nexit {exit_code}\n");
-        std::fs::write(&script, body).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        script.to_string_lossy().into_owned()
+        let program = dir.join(format!("claude{}", std::env::consts::EXE_SUFFIX));
+        let path = program.to_string_lossy().into_owned();
+        std::fs::write(format!("{path}.output"), output).unwrap();
+        std::fs::write(format!("{path}.exit"), exit_code.to_string()).unwrap();
+        if !program.exists() {
+            // A link, so that no test holds the program open for writing while another starts it (Linux refuses
+            // to run such a file). Copy where a link is impossible: another drive on the Windows runners.
+            let source = fake_claude_program();
+            std::fs::hard_link(source, &program).or_else(|_| std::fs::copy(source, &program).map(drop)).unwrap();
+        }
+        path
     }
 
     pub fn write_jpeg(path: &Path, shade: u8) {

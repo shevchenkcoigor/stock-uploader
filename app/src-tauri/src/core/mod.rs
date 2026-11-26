@@ -6,7 +6,7 @@ pub mod caption;
 pub mod caption_run;
 pub mod categories;
 pub mod describe;
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod e2e;
 pub mod embed;
 pub mod env;

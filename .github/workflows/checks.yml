@@ -80,11 +80,14 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  # Catches platform-specific breakage. Not on Windows yet: the stand-in `claude` of the caption tests is a
-  # Unix shell script.
-  macos:
-    name: Rust tests (macOS)
-    runs-on: macos-latest
+  # Catches platform-specific breakage.
+  platforms:
+    name: Rust tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install # as in rust-toolchain.toml

@@ -152,7 +152,8 @@ mod tests {
              INSERT INTO events VALUES ('one');",
         )
         .unwrap();
-        let copy = old.join("export/a.jpg").display().to_string();
+        // joined part by part: the app writes these paths with the separator of the OS
+        let copy = old.join("export").join("a.jpg").display().to_string();
         for (path, export) in [("/pictures/a.jpg", copy.as_str()), ("/pictures/b.jpg", "/elsewhere/b.jpg")] {
             conn.execute("INSERT INTO files VALUES (?1, ?2)", [path, export]).unwrap();
         }
@@ -174,7 +175,7 @@ mod tests {
         assert!(migrate_data_dir(&old, &new).unwrap());
 
         let moved = rows(&new.join("state.db"));
-        assert_eq!(moved[0], ("/pictures/a.jpg".into(), new.join("export/a.jpg").display().to_string()));
+        assert_eq!(moved[0], ("/pictures/a.jpg".into(), new.join("export").join("a.jpg").display().to_string()));
         assert_eq!(moved[1], ("/pictures/b.jpg".into(), "/elsewhere/b.jpg".into()));
         assert_eq!(fs::read_to_string(new.join("export/a.jpg")).unwrap(), "copy");
         assert!(new.join("state_backups/state_20260101T000000000000.bak").exists());
