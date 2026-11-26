@@ -204,7 +204,7 @@ a.jpg,Red apple on a table,"apple, red, fruit, table",
 
 ## Проверка и тесты
 
-Версия Rust зафиксирована в `rust-toolchain.toml` (поднимать осознанно). Обновления библиотек и actions раз в
+Версия Node задана в `.nvmrc`, Версия Rust зафиксирована в `rust-toolchain.toml` (поднимать осознанно). Обновления библиотек и actions раз в
 неделю присылает Dependabot отдельными PR; сами они не сливаются.
 
 ```bash
