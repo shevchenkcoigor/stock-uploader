@@ -69,13 +69,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  window:
+    name: Window tests
+    needs: app
+    uses: ./.github/workflows/e2e.yml
+
   # Always runs and fails unless every job before it succeeded: a skipped required check would count as passed.
   gate:
     name: CI gate
-    needs: [app, build]
+    needs: [app, build, window]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
-          echo "checks: ${{ needs.app.result }}, builds: ${{ needs.build.result }}"
-          [ "${{ needs.app.result }}" = success ] && [ "${{ needs.build.result }}" = success ]
+          echo "checks: ${{ needs.app.result }}, builds: ${{ needs.build.result }}, window: ${{ needs.window.result }}"
+          [ "${{ needs.app.result }}" = success ] && [ "${{ needs.build.result }}" = success ] && [ "${{ needs.window.result }}" = success ]

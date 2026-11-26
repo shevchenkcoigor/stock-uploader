@@ -1,20 +1,13 @@
 name: Window tests
 
-# The app is built with the WebDriver server and driven through its window (app/e2e). Deliberately a workflow
-# of its own and not part of `CI gate` yet: make it required after it has been stable for a week or two (#59).
-
+# The app is built with the WebDriver server and driven through its window (app/e2e). Called by build.yml,
+# where `CI gate` requires it. No `concurrency` here: in a called workflow it would clash with the caller's.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   window:
@@ -24,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     defaults:
       run:
         working-directory: app/e2e

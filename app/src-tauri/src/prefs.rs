@@ -19,8 +19,17 @@ const LEGACY_PLIST: &str = "com.adobe-stock-uploader.Adobe Stock Uploader.plist"
 
 pub type PrefMap = BTreeMap<String, String>;
 
+fn data_root() -> PathBuf {
+    // Windows finds its data folder without reading any variable a test could set, so the window tests name one.
+    #[cfg(feature = "e2e")]
+    if let Some(dir) = std::env::var_os("STOCK_E2E_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    dirs::data_dir().unwrap_or_default()
+}
+
 fn support_dir(name: &str) -> PathBuf {
-    dirs::data_dir().unwrap_or_default().join(name)
+    data_root().join(name)
 }
 
 /// `~/Library/Application Support/Adobe Stock Uploader`: the data folder of the previous app name.

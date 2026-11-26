@@ -18,7 +18,7 @@ cd app/src-tauri && cargo test --lib core::export     # Rust tests matching a pa
 cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings   # Rust format and lint (CI)
 ```
 
-Window tests (`app/e2e`, own `package.json`; not in `CI gate` yet, #59): `cd app/e2e && npm run build:app && npm test`.
+Window tests (`app/e2e`, own `package.json`; part of `CI gate` on Linux, Windows and macOS): `cd app/e2e && npm run build:app && npm test`.
 
 `cd app && npm run fix` applies the automatic fixes. `.githooks/pre-commit` only checks `cargo fmt` and `oxlint` for staged files (enable once: `git config core.hooksPath .githooks`); CI runs the checks in `checks.yml` (lint, vitest, build, `cargo fmt`/`clippy`/`test`, dependency audit) on every pull request, so run them locally only when you want faster feedback.
 

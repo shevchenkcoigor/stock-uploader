@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { appEnv, writeFakeClaude, writePictures } from './environment.ts'
 
-const binary = resolve(import.meta.dirname, '../src-tauri/target/debug/stock-uploader')
+const executable = process.platform === 'win32' ? 'stock-uploader.exe' : 'stock-uploader'
+const binary = resolve(import.meta.dirname, '../src-tauri/target/debug', executable)
 const artifacts = resolve(import.meta.dirname, 'artifacts')
 // a constant of its own: WebdriverIO's capability type does not list `tauri:options`
 const capability = { browserName: 'tauri', 'tauri:options': { application: binary } }
