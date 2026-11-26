@@ -1,6 +1,7 @@
-// Everything the tested app may write lives under a new temporary HOME, so a local run touches neither the
+// The app's settings and database live under a new temporary HOME, so a local run touches neither the
 // developer's settings nor their database. The launcher creates it and the workers inherit the path. Nothing
 // here removes files: the folder stays in the system temp directory, which the OS cleans.
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,11 +12,16 @@ export const pictures = join(home, 'pictures')
 export const database = join(home, 'db', 'state.db')
 export const pictureNames = ['first.jpg', 'second.jpg']
 
-const dataDir = process.platform === 'darwin' ? join(home, 'Library', 'Application Support') : join(home, '.local', 'share')
+const windows = process.platform === 'win32'
+const dataDirs: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: join(home, 'Library', 'Application Support'),
+  win32: join(home, 'data'),
+}
+const dataDir = dataDirs[process.platform] ?? join(home, '.local', 'share')
 export const settingsFile = join(dataDir, 'com.stock-uploader.desktop', 'settings.json')
 
 // Stands in for `claude`: no scenario may reach the real one.
-const fakeClaude = join(home, 'fake-claude')
+const fakeClaude = join(home, windows ? 'fake-claude.exe' : 'fake-claude')
 const claudeAnswer = join(home, 'claude-answer.json')
 
 // The app sends its own previews, named img001.jpg and on, in the order the files were scanned.
@@ -38,6 +44,8 @@ export const appEnv = {
   XDG_CACHE_HOME: join(home, '.cache'),
   STOCK_STATE_DB: database,
   STOCK_CLAUDE_PATH: fakeClaude,
+  // read only by Windows builds' stand-in for HOME; see `data_root` in prefs.rs
+  ...(windows ? { STOCK_E2E_DATA_DIR: dataDir } : {}),
 }
 
 // Adobe Stock takes pictures of 4 megapixels and more, so smaller ones would be listed as problems.
@@ -61,7 +69,7 @@ export function writePictures(): void {
   })
 }
 
-/** A script that answers every call with the same description of two pictures; the second one needs a person. */
+/** A program that answers every call with the same description of two pictures; the second one needs a person. */
 export function writeFakeClaude(): void {
   const item = (file: string, source: typeof described, reason: string) => ({
     file,
@@ -74,5 +82,14 @@ export function writeFakeClaude(): void {
   })
   const items = [item('img001.jpg', described, ''), item('img002.jpg', flagged, flagged.reason)]
   writeFileSync(claudeAnswer, JSON.stringify({ structured_output: { items } }))
-  writeFileSync(fakeClaude, `#!/bin/sh\ncat '${claudeAnswer}'\n`, { mode: 0o755 })
+  if (windows) compileFakeClaude()
+  else writeFileSync(fakeClaude, `#!/bin/sh\ncat '${claudeAnswer}'\n`, { mode: 0o755 })
+}
+
+// A batch file would not do: Rust refuses to pass it the multi-line prompt, so Windows gets a real program.
+function compileFakeClaude(): void {
+  const source = join(home, 'fake-claude.rs')
+  writeFileSync(source, `fn main() { print!("{}", include_str!(r"${claudeAnswer}")); }\n`)
+  // run from the repository, so that rust-toolchain.toml picks the compiler
+  execFileSync('rustc', [source, '-o', fakeClaude], { cwd: import.meta.dirname, stdio: 'inherit' })
 }
