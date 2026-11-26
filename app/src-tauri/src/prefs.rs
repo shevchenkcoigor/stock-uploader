@@ -8,21 +8,43 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::core::migrate;
 use crate::error::AppResult;
 
-const APP_ID: &str = "com.adobe-stock-uploader.desktop";
-const LEGACY_APP_DIR: &str = "Adobe Stock Uploader";
+const APP_ID: &str = "com.stock-uploader.desktop";
+const OLD_APP_ID: &str = "com.adobe-stock-uploader.desktop";
+const APP_DIR: &str = "Stock Uploader";
+const OLD_APP_DIR: &str = "Adobe Stock Uploader";
 const LEGACY_PLIST: &str = "com.adobe-stock-uploader.Adobe Stock Uploader.plist";
 
 pub type PrefMap = BTreeMap<String, String>;
 
-/// `~/Library/Application Support/Adobe Stock Uploader` — where state.db has always lived.
-pub fn legacy_data_dir() -> PathBuf {
-    dirs::data_dir().unwrap_or_default().join(LEGACY_APP_DIR)
+fn support_dir(name: &str) -> PathBuf {
+    dirs::data_dir().unwrap_or_default().join(name)
+}
+
+/// `~/Library/Application Support/Adobe Stock Uploader`: the data folder of the previous app name.
+pub fn old_data_dir() -> PathBuf {
+    support_dir(OLD_APP_DIR)
+}
+
+/// Where the data folder will be (or already is) under the current name.
+pub fn new_data_dir() -> PathBuf {
+    support_dir(APP_DIR)
+}
+
+/// The folder holding state.db: the new one, or the old one while its data has not been copied.
+pub fn data_dir() -> PathBuf {
+    migrate::data_dir(&old_data_dir(), &new_data_dir())
 }
 
 fn settings_file() -> PathBuf {
-    dirs::data_dir().unwrap_or_default().join(APP_ID).join("settings.json")
+    support_dir(APP_ID).join("settings.json")
+}
+
+/// The settings file to read: the previous name's one until the first save under the new name.
+fn readable_settings(current: PathBuf, old: PathBuf) -> Option<PathBuf> {
+    [current, old].into_iter().find(|file| file.exists())
 }
 
 fn plist_value_text(value: &plist::Value) -> Option<String> {
@@ -46,8 +68,7 @@ fn import_legacy() -> PrefMap {
 }
 
 pub fn load() -> AppResult<PrefMap> {
-    let file = settings_file();
-    if file.exists() {
+    if let Some(file) = readable_settings(settings_file(), support_dir(OLD_APP_ID).join("settings.json")) {
         return Ok(serde_json::from_str(&fs::read_to_string(file)?)?);
     }
     Ok(import_legacy())
@@ -91,4 +112,22 @@ pub fn get_pref(key: String, default: Option<String>) -> AppResult<String> {
 #[tauri::command]
 pub fn set_pref(key: String, value: String) -> AppResult<()> {
     set_many(&[(key.as_str(), value)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_old_settings_are_read_until_new_ones_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let (current, old) = (dir.path().join("new.json"), dir.path().join("old.json"));
+        assert_eq!(readable_settings(current.clone(), old.clone()), None);
+
+        fs::write(&old, "{}").unwrap();
+        assert_eq!(readable_settings(current.clone(), old.clone()), Some(old.clone()));
+
+        fs::write(&current, "{}").unwrap();
+        assert_eq!(readable_settings(current.clone(), old), Some(current));
+    }
 }

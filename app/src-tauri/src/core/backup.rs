@@ -7,11 +7,13 @@ use chrono::Utc;
 use rusqlite::Connection;
 use rusqlite::backup::Backup;
 
+use crate::core::env;
 use crate::error::{AppError, AppResult};
 
 const DEFAULT_KEEP: usize = 30;
 const BACKUP_SUFFIX: &str = ".bak";
-const BACKUP_DIR_ENV: &str = "ADOBE_BACKUP_DIR";
+const BACKUP_DIR_ENV: &str = "STOCK_BACKUP_DIR";
+const LEGACY_BACKUP_DIR_ENV: &str = "ADOBE_BACKUP_DIR";
 #[cfg(unix)]
 const READ_ONLY: u32 = 0o444;
 #[cfg(unix)]
@@ -21,9 +23,9 @@ fn stem_of(db: &Path) -> String {
     db.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// A sibling folder by default; ADOBE_BACKUP_DIR keeps the copies on another disk.
+/// A sibling folder by default; STOCK_BACKUP_DIR keeps the copies on another disk.
 pub fn backup_dir_for(db: &Path) -> PathBuf {
-    match std::env::var_os(BACKUP_DIR_ENV).filter(|value| !value.is_empty()) {
+    match env::var(BACKUP_DIR_ENV, LEGACY_BACKUP_DIR_ENV) {
         Some(dir) => PathBuf::from(dir),
         None => db.with_file_name(format!("{}_backups", stem_of(db))),
     }

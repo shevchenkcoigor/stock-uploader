@@ -16,6 +16,10 @@ mod upload_cmd;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A failure is not fatal: the app then keeps using the old folder and tries again next time.
+    if let Err(error) = core::migrate::migrate_data_dir(&prefs::old_data_dir(), &prefs::new_data_dir()) {
+        eprintln!("could not copy the data of the previous app name: {error}");
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -56,5 +60,5 @@ pub fn run() {
             files::reveal_path,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Adobe Stock Uploader");
+        .expect("error while running Stock Uploader");
 }

@@ -9,34 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "adobe-stock-uploader"
-version = "0.1.1"
-dependencies = [
- "base64 0.23.1",
- "chrono",
- "csv",
- "dirs",
- "image",
- "img-parts",
- "jpeg-decoder",
- "keyring",
- "plist",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "ssh2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3791,6 +3763,34 @@ name = "static_vcruntime"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
+
+[[package]]
+name = "stock-uploader"
+version = "0.1.1"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "csv",
+ "dirs",
+ "image",
+ "img-parts",
+ "jpeg-decoder",
+ "keyring",
+ "plist",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "ssh2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "string_cache"
