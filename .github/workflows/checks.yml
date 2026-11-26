@@ -9,8 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  app:
-    name: Frontend and Rust
+  # Fast: no compilation and no system libraries, so style errors show up first.
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,7 +25,42 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+      - run: npm ci
+      - run: npm run lint
+      - name: cargo fmt
+        working-directory: app/src-tauri
+        run: cargo fmt --check
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  # clippy and the tests stay in one job: two would compile the dependencies twice.
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
@@ -32,18 +68,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - name: cargo fmt
-        working-directory: app/src-tauri
-        run: cargo fmt --check
       - name: cargo clippy
-        working-directory: app/src-tauri
         run: cargo clippy --all-targets -- -D warnings
       - name: cargo test
-        working-directory: app/src-tauri
         run: cargo test
 
   # Catches platform-specific breakage. Not on Windows yet: the stand-in `claude` of the caption tests is a
