@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "fix": "oxlint --fix && cd src-tauri && cargo clippy --fix --all-targets --allow-dirty --allow-staged && cargo fmt",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run"

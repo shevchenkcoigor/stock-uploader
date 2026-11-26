@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fast checks only, no changes to files; CI runs the full set. Fix with `cd app && npm run fix`.
+# Enable once: git config core.hooksPath .githooks
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)/app"
+
+staged=$(git diff --cached --name-only --relative)
+fail() {
+  echo "pre-commit: $1. Run: cd app && npm run fix" >&2
+  exit 1
+}
+
+if grep -qE '^src-tauri/.*(\.rs|rustfmt\.toml)$' <<<"$staged"; then
+  (cd src-tauri && cargo fmt --check) || fail "Rust code is not formatted"
+fi
+
+if grep -qE '\.(ts|tsx|js|jsx)$' <<<"$staged"; then
+  npm run --silent lint || fail "oxlint failed (needs npm ci in this worktree)"
+fi
