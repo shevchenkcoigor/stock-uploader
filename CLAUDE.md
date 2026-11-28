@@ -22,6 +22,10 @@ Window tests (`app/e2e`, own `package.json`; part of `CI gate` on Linux, Windows
 
 `cd app && npm run fix` applies the automatic fixes. `.githooks/pre-commit` only checks `cargo fmt` and `oxlint` for staged files (enable once: `git config core.hooksPath .githooks`); CI runs the checks in `checks.yml` (lint, vitest, build, `cargo fmt`/`clippy`/`test`, dependency audit) on every pull request, so run them locally only when you want faster feedback.
 
+## Subagents
+
+`.claude/agents/`: `rust-dev` (`app/src-tauri`, preloads the `rust-guidelines` skill), `ts-dev` (`app/src`, preloads `google-ts-style`), `build-dev` (CI, bundling, releases) and `reviewer` (read-only, both skills). The skills are the user's own, in `~/.claude/skills`, not part of this repository. The agents do not commit or push; the main session does the delivery steps below.
+
 ## Architecture
 
 Pipeline: `scan → caption → (review/approve) → prepare + upload → [portal, manual] → submitted`. The Upload page's button first prepares every pending file (copies with embedded metadata, a no-op when they are current) and then uploads the copies; files already on SFTP are listed but skipped; «mark submitted» (all uploaded files) is on the same page. There are no batches.
